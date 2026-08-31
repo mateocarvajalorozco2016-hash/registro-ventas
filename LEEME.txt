@@ -1,9 +1,8 @@
-VERSION 3
-No incluye productos ni imágenes de ejemplo.
-Usted agrega todos los productos, sus precios y sus imágenes.
-Las imágenes se copian automáticamente a datos/productos y datos/dinero,
-por lo que siguen apareciendo aunque mueva o borre la foto original.
-Acepta JPG, JPEG, PNG, GIF, BMP y WEBP.
-Incluye categorías, búsqueda, menú de ventas diarias/semanales/mensuales,
-historial y botones de dinero con imágenes propias.
-No hay inventario.
+VERSION 4
+Correcciones solicitadas:
+- Los botones de dinero quedan abajo, en la zona central/izquierda, no en el panel derecho.
+- El menú superior izquierdo funciona dentro de la misma ventana como panel lateral.
+- El panel derecho queda para la venta actual, total, recibido, cambio y registrar venta.
+- Vienen imágenes ilustrativas predeterminadas para $1.000, $2.000, $5.000, $10.000, $20.000, $50.000 y $100.000.
+- Las imágenes predeterminadas se pueden reemplazar desde Configuración por las fotos que usted quiera.
+- No incluye productos ni inventario.

@@ -9,8 +9,7 @@ from PIL import Image, ImageTk
 BASE=Path(__file__).resolve().parent
 DATA=BASE/"datos"; PRODUCTS=DATA/"productos"; MONEY=DATA/"dinero"; DB=DATA/"ventas.db"
 for p in (PRODUCTS,MONEY): p.mkdir(parents=True,exist_ok=True)
-D=[1000,2000,5000,10000,20000,50000,100000]
-DEFAULT=["Cargadores","Gorras","Radios","Memorias","Audífonos","Bolsos","Gorros","Juguetes","Otros"]
+D=[1000,2000,5000,10000,20000,50000,100000]\nDEFAULT=["Cargadores","Gorras","Radios","Memorias","Audífonos","Bolsos","Gorros","Juguetes","Otros"]
 
 def M(n): return "$"+f"{int(n):,}".replace(",",".")
 
@@ -38,10 +37,42 @@ class App(tk.Tk):
 
     def top(self):
         h=tk.Frame(self,bg="#17191d",height=68); h.pack(fill="x")
-        b=tk.Button(h,text="☰  MI NEGOCIO",command=self.menu,bg="#17191d",fg="white",relief="flat",font=("Segoe UI",20,"bold"))
+        b=tk.Button(h,text="☰  MI NEGOCIO",command=self.toggle_sidebar,bg="#17191d",fg="white",relief="flat",font=("Segoe UI",20,"bold"))
         b.pack(side="left",padx=18,pady=12)
+        self.sidebar=None
         tk.Button(h,text="⚙",command=self.settings,bg="#30343a",fg="white",relief="flat",font=("Segoe UI",13,"bold")).pack(side="right",padx=18,pady=14)
         self.body=tk.Frame(self,bg="#f2f4f7"); self.body.pack(fill="both",expand=True,padx=14,pady=14)
+
+
+    def toggle_sidebar(self):
+        if self.sidebar and self.sidebar.winfo_exists():
+            self.sidebar.destroy()
+            self.sidebar=None
+            return
+        self.sidebar=tk.Frame(self, bg="white", highlightthickness=1, highlightbackground="#d5d8dc")
+        self.sidebar.place(x=0,y=68,width=300,relheight=1.0,anchor="nw")
+        tk.Label(self.sidebar,text="MI NEGOCIO",bg="white",font=("Segoe UI",18,"bold")).pack(anchor="w",padx=20,pady=20)
+        items=[
+            ("🛒  Nueva venta", self.sale),
+            ("📊  Ventas de hoy", lambda:self.history("Hoy")),
+            ("📅  Ventas de esta semana", lambda:self.history("Semana")),
+            ("📆  Ventas de este mes", lambda:self.history("Mes")),
+            ("📦  Productos y categorías", self.manager),
+            ("⚙  Configuración", self.settings),
+        ]
+        for text,cmd in items:
+            tk.Button(self.sidebar,text=text,command=lambda c=cmd:self.sidebar_action(c),
+                      anchor="w",relief="flat",bg="white",activebackground="#eef0f3",
+                      font=("Segoe UI",11)).pack(fill="x",padx=10,pady=3,ipady=9)
+        tk.Frame(self.sidebar,bg="#eeeeee",height=1).pack(fill="x",padx=15,pady=15)
+        tk.Button(self.sidebar,text="Cerrar menú",command=self.toggle_sidebar,relief="flat",
+                  bg="#eef0f3").pack(fill="x",padx=20,pady=5,ipady=7)
+
+    def sidebar_action(self,cmd):
+        if self.sidebar and self.sidebar.winfo_exists():
+            self.sidebar.destroy()
+            self.sidebar=None
+        cmd()
 
     def clear(self):
         for w in self.body.winfo_children():w.destroy()
@@ -63,14 +94,15 @@ class App(tk.Tk):
         tk.Button(sf,text="🔎 Buscar",command=self.products,relief="flat",bg="#e8eaed").pack(side="left",padx=6,ipady=7)
         self.cats=tk.Frame(left,bg="white");self.cats.pack(fill="x",padx=12,pady=3)
         self.grid=tk.Frame(left,bg="white");self.grid.pack(fill="both",expand=True,padx=12)
+        tk.Label(left,text="DINERO RECIBIDO",bg="white",font=("Segoe UI",11,"bold")).pack(anchor="w",padx=18,pady=(4,0))
+        self.cash=tk.Frame(left,bg="white");self.cash.pack(fill="x",padx=12,pady=(2,10))
+        self.cashbuttons()
         tk.Label(right,text="VENTA ACTUAL",bg="white",font=("Segoe UI",12,"bold")).pack(anchor="w",padx=15,pady=12)
         self.tree=ttk.Treeview(right,columns=("item","sub"),show="headings",height=10);self.tree.heading("item",text="Producto / Cant.");self.tree.heading("sub",text="Subtotal");self.tree.column("item",width=205);self.tree.column("sub",width=100,anchor="e");self.tree.pack(fill="x",padx=10)
         tk.Button(right,text="Eliminar seleccionado",command=self.remove,relief="flat").pack(anchor="e",padx=10,pady=5)
         self.total=tk.Label(right,text="TOTAL  $0",bg="white",font=("Segoe UI",22,"bold"));self.total.pack(anchor="w",padx=15,pady=4)
         tk.Label(right,text="DINERO RECIBIDO",bg="white").pack(anchor="w",padx=15)
         self.rec=tk.Label(right,text="$0",bg="white",font=("Segoe UI",19,"bold"));self.rec.pack(anchor="w",padx=15)
-        self.cash=tk.Frame(right,bg="white");self.cash.pack(fill="x",padx=8,pady=5)
-        self.cashbuttons()
         self.change=tk.Label(right,text="CAMBIO  $0",bg="white",font=("Segoe UI",19,"bold"));self.change.pack(anchor="w",padx=15,pady=6)
         tk.Button(right,text="Borrar dinero recibido",command=lambda:self.setrec(0),relief="flat").pack(anchor="w",padx=15)
         tk.Button(right,text="✓  REGISTRAR VENTA",command=self.save,bg="#39a866",fg="white",relief="flat",font=("Segoe UI",12,"bold"),height=2).pack(fill="x",padx=15,pady=8)
@@ -133,11 +165,16 @@ class App(tk.Tk):
     def cashbuttons(self):
         for w in self.cash.winfo_children():w.destroy()
         for i,d in enumerate(D):
-            rel=self.money.get(d,"");ph=self.photo(rel,125,45,"m"+str(d)) if rel else None
-            b=tk.Button(self.cash,image=ph,text=M(d) if not ph else "",compound="center",command=lambda x=d:self.setrec(self.received+x),relief="flat",bg="#eef0f3")
+            rel=self.money.get(d,"")
+            if not rel:
+                default=BASE/"datos"/"dinero_predeterminado"/f"{d}.png"
+                rel=str(default.relative_to(BASE))
+            ph=self.photo(rel,145,55,"m"+str(d))
+            b=tk.Button(self.cash,image=ph,text=M(d) if not ph else "",compound="center",
+                        command=lambda x=d:self.setrec(self.received+x),relief="flat",bg="#eef0f3")
             if ph:b.image=ph
-            b.grid(row=i//2,column=i%2,sticky="ew",padx=2,pady=2)
-        self.cash.grid_columnconfigure(0,weight=1);self.cash.grid_columnconfigure(1,weight=1)
+            b.grid(row=0,column=i,sticky="ew",padx=2,pady=2)
+        for i in range(len(D)): self.cash.grid_columnconfigure(i,weight=1)
 
     def setrec(self,n):self.received=n;self.pay()
     def pay(self):
@@ -220,7 +257,7 @@ class App(tk.Tk):
         tk.Label(w,text="Imágenes de billetes y moneda",font=("Segoe UI",18,"bold")).pack(pady=15)
         for d in D:
             r=tk.Frame(w);r.pack(fill="x",padx=18,pady=4);tk.Label(r,text=M(d),width=10,font=("Segoe UI",10,"bold")).pack(side="left")
-            status=tk.Label(r,text=Path(self.money[d]).name if d in self.money else "Sin imagen",anchor="w");status.pack(side="left",fill="x",expand=True)
+            status=tk.Label(r,text=Path(self.money[d]).name if d in self.money else "Imagen predeterminada",anchor="w");status.pack(side="left",fill="x",expand=True)
             def choose(d=d,status=status):
                 p=filedialog.askopenfilename(filetypes=[("Imágenes","*.jpg *.jpeg *.png *.gif *.bmp *.webp")])
                 if p:self.money[d]=copyimg(p,MONEY,"dinero_"+str(d));status.config(text=Path(p).name);self.cashbuttons()
