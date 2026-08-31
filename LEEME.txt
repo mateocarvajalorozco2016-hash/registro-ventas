@@ -1,17 +1,9 @@
-COMO OBTENER EL EXE SIN INSTALAR PYTHON
-
-Esta versión usa GitHub Actions para compilar el programa en un computador Windows de GitHub.
-Tú NO necesitas instalar Python, Apache ni XAMPP en tu computador.
-
-Pasos:
-1. Crea una cuenta gratuita en GitHub.
-2. Crea un repositorio nuevo.
-3. Sube app.py y la carpeta .github/workflows con el archivo crear-exe.yml.
-4. En GitHub entra a Actions.
-5. Selecciona "Crear EXE de Windows".
-6. Pulsa "Run workflow".
-7. Cuando termine, descarga el artefacto "RegistroVentas-Windows".
-8. Dentro estará RegistroVentas.exe.
-
-Nota:
-Esta es una prueba técnica del método de compilación en la nube. La interfaz y funciones se seguirán mejorando antes de usarla como programa definitivo.
+VERSION 3
+No incluye productos ni imágenes de ejemplo.
+Usted agrega todos los productos, sus precios y sus imágenes.
+Las imágenes se copian automáticamente a datos/productos y datos/dinero,
+por lo que siguen apareciendo aunque mueva o borre la foto original.
+Acepta JPG, JPEG, PNG, GIF, BMP y WEBP.
+Incluye categorías, búsqueda, menú de ventas diarias/semanales/mensuales,
+historial y botones de dinero con imágenes propias.
+No hay inventario.
