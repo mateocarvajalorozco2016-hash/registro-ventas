@@ -9,8 +9,8 @@ from PIL import Image, ImageTk
 BASE=Path(__file__).resolve().parent
 DATA=BASE/"datos"; PRODUCTS=DATA/"productos"; MONEY=DATA/"dinero"; DB=DATA/"ventas.db"
 for p in (PRODUCTS,MONEY): p.mkdir(parents=True,exist_ok=True)
-D=[1000,2000,5000,10000,20000,50000,100000]\nDEFAULT=["Cargadores","Gorras","Radios","Memorias","Audífonos","Bolsos","Gorros","Juguetes","Otros"]
-
+D=[1000,2000,5000,10000,20000,50000,100000]
+DEFAULT=["Cargadores","Gorras","Radios","Memorias","Audífonos","Bolsos","Gorros","Juguetes","Otros"]
 def M(n): return "$"+f"{int(n):,}".replace(",",".")
 
 def con():
