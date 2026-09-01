@@ -344,10 +344,10 @@ class App(tk.Tk):
         action_row = tk.Frame(right, bg="white")
         action_row.pack(fill="x", padx=12, pady=(6, 2))
         self.make_button(action_row, "Eliminar seleccionado", self.remove_selected,
-                         bg="#eef1f4", fg="#333").pack(side="left", ipady=5, ipadx=7)
+                         bg="#d92d20", fg="white", activebackground="#b42318").pack(side="left", ipady=5, ipadx=7)
         self.total_label = tk.Label(action_row, text="TOTAL  $0", bg="white", fg="#17191d",
-                                    font=("Segoe UI", 18, "bold"))
-        self.total_label.pack(side="left", padx=(14, 0))
+                                    font=("Segoe UI", 18, "bold"), anchor="w", width=22)
+        self.total_label.pack(side="left", padx=(14, 0), fill="x", expand=True)
 
         tk.Label(right, text="DINERO RECIBIDO", bg="white", fg=self.MUTED,
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=14, pady=(3, 0))
@@ -358,12 +358,12 @@ class App(tk.Tk):
                                      font=("Segoe UI", 17, "bold"))
         self.change_label.pack(anchor="w", padx=14, pady=(2, 4))
         self.make_button(right, "Borrar dinero recibido", lambda: self.set_received(0),
-                         bg="white", fg="#667085", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=0)
+                         bg="#d92d20", fg="white", activebackground="#b42318", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=0)
         self.make_button(right, "✓  REGISTRAR VENTA", self.save_sale,
                          bg=self.GREEN, fg="white", activebackground="#128657",
                          font=("Segoe UI", 15, "bold")).pack(fill="x", padx=14, pady=(8, 6), ipady=19)
         self.make_button(right, "Cancelar / nueva venta", self.new_sale,
-                         bg="#eef1f4", fg="#333", font=("Segoe UI", 9, "bold")).pack(fill="x", padx=14, pady=(0, 8), ipady=6)
+                         bg="#d92d20", fg="white", activebackground="#b42318", font=("Segoe UI", 9, "bold")).pack(fill="x", padx=14, pady=(0, 8), ipady=6)
 
         self.load_categories()
         self.update_idletasks()
@@ -448,7 +448,7 @@ class App(tk.Tk):
         # Tarjetas un poco más grandes, pero se adaptan al ancho disponible.
         available = max(self.products_area.winfo_width(), 820)
         columns = max(3, min(5, available // 215))
-        card_w, card_h = 208, 202
+        card_w, card_h = 196, 192
         for col in range(columns):
             self.products_area.grid_columnconfigure(col, weight=1, uniform="product")
         for i, (pid, name, category, price, image) in enumerate(rows):
@@ -457,7 +457,7 @@ class App(tk.Tk):
                             highlightthickness=1, highlightbackground="#dfe4e8", cursor="hand2")
             card.grid(row=r, column=col, padx=7, pady=6, sticky="nsew")
             card.grid_propagate(False)
-            photo = self.load_photo(image, 176, 126, f"product-{pid}")
+            photo = self.load_photo(image, 166, 118, f"product-{pid}")
             if photo:
                 visual = tk.Label(card, image=photo, bg="#eef2f5")
                 visual.image = photo
@@ -466,7 +466,7 @@ class App(tk.Tk):
                                   font=("Segoe UI", 10))
             visual.pack(pady=(6, 3))
             name_label = tk.Label(card, text=name, bg="#eef2f5", fg="#20252b", font=("Segoe UI", 10, "bold"),
-                                  wraplength=192)
+                                  wraplength=180)
             name_label.pack(pady=(0, 1))
             price_label = tk.Label(card, text=money(price), bg="#eef2f5", fg="#17191d",
                                    font=("Segoe UI", 11, "bold"))
@@ -567,8 +567,8 @@ class App(tk.Tk):
                 default = DEFAULT_MONEY / f"{denomination}.png"
                 if default.exists():
                     relative = str(default)
-            photo = self.load_photo(relative, 112, 52, f"money-{denomination}")
-            holder = tk.Frame(self.cash_buttons_frame, bg="#f8fafb", width=120, height=62)
+            photo = self.load_photo(relative, 104, 48, f"money-{denomination}")
+            holder = tk.Frame(self.cash_buttons_frame, bg="#f8fafb", width=108, height=56)
             holder.pack(side="left", padx=2, pady=1)
             holder.pack_propagate(False)
             btn = self.make_button(
