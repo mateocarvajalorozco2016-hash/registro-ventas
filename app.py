@@ -329,9 +329,15 @@ class App(tk.Tk):
         self.custom_received_entry.bind("<<Paste>>", self.on_received_paste)
         self.render_cash_buttons()
 
-        # Panel derecho: lo importante queda visible y compacto.
-        tk.Label(right, text="VENTA ACTUAL", bg="white", fg="#17191d",
-                 font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=14, pady=(10, 6))
+        # Panel derecho: encabezado con VENTA ACTUAL y eliminar al lado.
+        current_head = tk.Frame(right, bg="white")
+        current_head.pack(fill="x", padx=14, pady=(10, 6))
+        tk.Label(current_head, text="VENTA ACTUAL", bg="white", fg="#17191d",
+                 font=("Segoe UI", 12, "bold")).pack(side="left")
+        self.make_button(current_head, "Eliminar seleccionado", self.remove_selected,
+                         bg="#d92d20", fg="white", activebackground="#b42318",
+                         font=("Segoe UI", 8, "bold")).pack(side="right", ipady=3, ipadx=5)
+
         tree_frame = tk.Frame(right, bg="white")
         tree_frame.pack(fill="both", expand=True, padx=9)
         self.cart_tree = ttk.Treeview(tree_frame, columns=("producto", "precio"), show="headings")
@@ -341,13 +347,9 @@ class App(tk.Tk):
         self.cart_tree.column("precio", width=105, anchor="e")
         self.cart_tree.pack(fill="both", expand=True)
 
-        action_row = tk.Frame(right, bg="white")
-        action_row.pack(fill="x", padx=12, pady=(6, 2))
-        self.make_button(action_row, "Eliminar seleccionado", self.remove_selected,
-                         bg="#d92d20", fg="white", activebackground="#b42318").pack(side="left", ipady=5, ipadx=7)
-        self.total_label = tk.Label(action_row, text="TOTAL  $0", bg="white", fg="#17191d",
-                                    font=("Segoe UI", 18, "bold"), anchor="w", width=22)
-        self.total_label.pack(side="left", padx=(14, 0), fill="x", expand=True)
+        self.total_label = tk.Label(right, text="TOTAL  $0", bg="white", fg="#17191d",
+                                    font=("Segoe UI", 18, "bold"), anchor="e")
+        self.total_label.pack(fill="x", padx=14, pady=(7, 5))
 
         tk.Label(right, text="DINERO RECIBIDO", bg="white", fg=self.MUTED,
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=14, pady=(3, 0))
@@ -361,7 +363,7 @@ class App(tk.Tk):
                          bg="#d92d20", fg="white", activebackground="#b42318", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=0)
         self.make_button(right, "✓  REGISTRAR VENTA", self.save_sale,
                          bg=self.GREEN, fg="white", activebackground="#128657",
-                         font=("Segoe UI", 15, "bold")).pack(fill="x", padx=14, pady=(8, 6), ipady=19)
+                         font=("Segoe UI", 14, "bold")).pack(fill="x", padx=14, pady=(7, 5), ipady=14)
         self.make_button(right, "Cancelar / nueva venta", self.new_sale,
                          bg="#d92d20", fg="white", activebackground="#b42318", font=("Segoe UI", 9, "bold")).pack(fill="x", padx=14, pady=(0, 8), ipady=6)
 
@@ -447,8 +449,8 @@ class App(tk.Tk):
 
         # Tarjetas un poco más grandes, pero se adaptan al ancho disponible.
         available = max(self.products_area.winfo_width(), 820)
-        columns = max(3, min(5, available // 215))
-        card_w, card_h = 196, 192
+        columns = max(3, min(6, available // 145))
+        card_w, card_h = 138, 178
         for col in range(columns):
             self.products_area.grid_columnconfigure(col, weight=1, uniform="product")
         for i, (pid, name, category, price, image) in enumerate(rows):
@@ -457,7 +459,7 @@ class App(tk.Tk):
                             highlightthickness=1, highlightbackground="#dfe4e8", cursor="hand2")
             card.grid(row=r, column=col, padx=7, pady=6, sticky="nsew")
             card.grid_propagate(False)
-            photo = self.load_photo(image, 166, 118, f"product-{pid}")
+            photo = self.load_photo(image, 120, 100, f"product-{pid}")
             if photo:
                 visual = tk.Label(card, image=photo, bg="#eef2f5")
                 visual.image = photo
@@ -465,11 +467,11 @@ class App(tk.Tk):
                 visual = tk.Label(card, text="🖼\nSin imagen", bg="#eef2f5", fg="#8a939d",
                                   font=("Segoe UI", 10))
             visual.pack(pady=(6, 3))
-            name_label = tk.Label(card, text=name, bg="#eef2f5", fg="#20252b", font=("Segoe UI", 10, "bold"),
-                                  wraplength=180)
+            name_label = tk.Label(card, text=name, bg="#eef2f5", fg="#20252b", font=("Segoe UI", 9, "bold"),
+                                  wraplength=128)
             name_label.pack(pady=(0, 1))
             price_label = tk.Label(card, text=money(price), bg="#eef2f5", fg="#17191d",
-                                   font=("Segoe UI", 11, "bold"))
+                                   font=("Segoe UI", 10, "bold"))
             price_label.pack()
             for widget in (card, visual, name_label, price_label):
                 widget.bind("<Button-1>", lambda _e, p=pid: self.add_to_cart(p))
@@ -699,19 +701,38 @@ class App(tk.Tk):
 
         frame = tk.Frame(self.body, bg="white")
         frame.pack(fill="both", expand=True)
-        tree = ttk.Treeview(frame, columns=("id", "fecha", "total", "rec", "cam"), show="headings")
-        for col, text, width in [("id", "Venta", 90), ("fecha", "Fecha y hora", 210), ("total", "Total", 170), ("rec", "Recibido", 170), ("cam", "Cambio", 170)]:
+
+        # Historial simplificado: únicamente fecha, producto y precio.
+        detail_rows = []
+        c = database()
+        detail_rows = c.execute(
+            """SELECT v.fecha, d.nombre, d.precio * d.cantidad
+               FROM ventas v
+               JOIN detalle d ON d.venta_id = v.id
+               WHERE v.fecha >= ? AND v.fecha < ?
+               ORDER BY v.id DESC, d.id ASC""",
+            (start.isoformat(sep=" "), end.isoformat(sep=" "))
+        ).fetchall()
+        c.close()
+
+        tree = ttk.Treeview(frame, columns=("fecha", "producto", "precio"), show="headings")
+        for col, text, width in [
+            ("fecha", "Fecha", 210),
+            ("producto", "Producto", 520),
+            ("precio", "Precio", 180)
+        ]:
             tree.heading(col, text=text)
-            tree.column(col, width=width, anchor="center")
+            tree.column(col, width=width, anchor="center" if col != "producto" else "w")
         tree.pack(fill="both", expand=True, padx=12, pady=12)
-        for sale_id, date_text, sale_total, received, change in rows:
+
+        for date_text, product_name, line_price in detail_rows:
             try:
                 date_display = datetime.fromisoformat(date_text).strftime("%d/%m/%Y %H:%M")
             except ValueError:
                 date_display = date_text
-            tree.insert("", "end", values=(sale_id, date_display, money(sale_total), money(received), money(change)), tags=(str(sale_id),))
-        tree.bind("<Double-1>", lambda _e: self.show_sale_detail(tree))
-        tk.Label(self.body, text="Doble clic en una venta para ver sus productos.", bg=self.BG, fg=self.MUTED,
+            tree.insert("", "end", values=(date_display, product_name, money(line_price)))
+
+        tk.Label(self.body, text="Fecha, producto y precio.", bg=self.BG, fg=self.MUTED,
                  font=("Segoe UI", 9)).pack(anchor="w", pady=(7, 0))
 
     def show_sale_detail(self, tree):

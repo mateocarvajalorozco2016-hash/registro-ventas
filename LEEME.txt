@@ -1,4 +1,4 @@
-REGISTRO DE VENTAS V7 - ajustes de interfaz y dinero
+REGISTRO DE VENTAS V8 - ajustes de interfaz y dinero
 
 Esta versión trabaja sobre la V5 y conserva SQLite, imágenes persistentes, ventas y búsqueda tolerante a errores.
 
@@ -42,3 +42,11 @@ GITHUB ACTIONS
 REQUISITOS DEL PROYECTO
 - Python solo es necesario para desarrollar o ejecutar desde el código fuente.
 - El usuario final del EXE no necesita Python, Node.js, Apache ni XAMPP.
+
+
+AJUSTES DE ESTA VERSIÓN
+- Hasta 6 productos por fila en la pantalla de venta.
+- Botón REGISTRAR VENTA ligeramente más pequeño.
+- "Eliminar seleccionado" queda arriba, junto a "VENTA ACTUAL".
+- El TOTAL queda separado y alineado debajo de la lista de venta.
+- Ventas de hoy/semana/mes muestran únicamente Fecha, Producto y Precio.
