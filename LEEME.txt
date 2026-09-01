@@ -54,3 +54,10 @@ AJUSTES DE ESTA VERSIÓN
 AJUSTE V9
 - Botones de eliminar/cancelar en gris para que resalten sin usar rojo.
 - Billetes y monedas de "DINERO RECIBIDO" ampliados para facilitar su uso.
+
+AJUSTE V10
+- Casilla "Descuento" al lado de "Valor recibido".
+- Al marcarla aparece "Precio final" para escribir directamente el precio que se le dejó al cliente.
+- El programa calcula automáticamente el descuento y el cambio.
+- El descuento queda guardado en la venta.
+- Las ventas antiguas siguen funcionando gracias a una migración automática de la base de datos.

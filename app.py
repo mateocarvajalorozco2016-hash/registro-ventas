@@ -72,8 +72,13 @@ def database():
         fecha TEXT NOT NULL,
         total INTEGER NOT NULL,
         recibido INTEGER NOT NULL,
-        cambio INTEGER NOT NULL
+        cambio INTEGER NOT NULL,
+        descuento INTEGER NOT NULL DEFAULT 0
     )""")
+    # Compatibilidad con bases de datos creadas en versiones anteriores.
+    columnas_ventas = [row[1] for row in c.execute("PRAGMA table_info(ventas)").fetchall()]
+    if "descuento" not in columnas_ventas:
+        c.execute("ALTER TABLE ventas ADD COLUMN descuento INTEGER NOT NULL DEFAULT 0")
     c.execute("""CREATE TABLE IF NOT EXISTS detalle(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         venta_id INTEGER NOT NULL,
@@ -151,6 +156,8 @@ class App(tk.Tk):
         self.config_data = load_config()
         self.cart = {}  # product_id -> [name, price, quantity]
         self.received = 0
+        self.discount_enabled = False
+        self.final_total = 0
         self.category = "Todos"
         self.image_cache = {}
         self.money_paths = {int(k): v for k, v in self.config_data.get("dinero", {}).items() if str(k).isdigit()}
@@ -327,6 +334,32 @@ class App(tk.Tk):
         self.custom_received_entry.bind("<FocusOut>", self.on_received_typed)
         self.custom_received_entry.bind("<FocusIn>", self.on_received_focus)
         self.custom_received_entry.bind("<<Paste>>", self.on_received_paste)
+
+        self.discount_var = tk.BooleanVar(value=False)
+        self.discount_check = tk.Checkbutton(
+            custom, text="Descuento", variable=self.discount_var,
+            command=self.toggle_discount, bg="#f8fafb", fg="#252a31",
+            activebackground="#f8fafb", selectcolor="#ffffff",
+            font=("Segoe UI", 9, "bold")
+        )
+        self.discount_check.pack(side="left", padx=(14, 4))
+
+        self.final_price_frame = tk.Frame(money_box, bg="#f8fafb")
+        self.final_price_label = tk.Label(
+            self.final_price_frame, text="Precio final", bg="#f8fafb",
+            fg=self.MUTED, font=("Segoe UI", 9, "bold")
+        )
+        self.final_price_label.pack(side="left")
+        self.final_price_var = tk.StringVar(value="0")
+        self.final_price_entry = tk.Entry(
+            self.final_price_frame, textvariable=self.final_price_var,
+            font=("Segoe UI", 12, "bold"), justify="right",
+            relief="solid", bd=1, width=16
+        )
+        self.final_price_entry.pack(side="left", padx=8, ipady=4)
+        self.final_price_entry.bind("<KeyRelease>", self.on_final_price_typed)
+        self.final_price_entry.bind("<FocusOut>", self.on_final_price_typed)
+        # Se mantiene oculto hasta marcar "Descuento".
         self.render_cash_buttons()
 
         # Panel derecho: encabezado con VENTA ACTUAL y eliminar al lado.
@@ -549,12 +582,19 @@ class App(tk.Tk):
             return
         for item in self.cart_tree.get_children():
             self.cart_tree.delete(item)
-        total = 0
+        subtotal = 0
         for pid, (name, price, quantity) in self.cart.items():
-            subtotal = price * quantity
-            total += subtotal
-            self.cart_tree.insert("", "end", iid=str(pid), values=(f"{name}  ×{quantity}", money(subtotal)), tags=(str(pid),))
-        self.total_label.config(text=f"TOTAL  {money(total)}")
+            line_total = price * quantity
+            subtotal += line_total
+            self.cart_tree.insert("", "end", iid=str(pid), values=(f"{name}  ×{quantity}", money(line_total)), tags=(str(pid),))
+
+        total = self.effective_total()
+        self.final_total = total
+        if self.discount_enabled:
+            descuento = subtotal - total
+            self.total_label.config(text=f"TOTAL  {money(total)}   (-{money(descuento)})")
+        else:
+            self.total_label.config(text=f"TOTAL  {money(total)}")
         self.update_payment_display()
 
     def render_cash_buttons(self):
@@ -608,10 +648,46 @@ class App(tk.Tk):
     def on_received_paste(self, _event=None):
         self.after_idle(self.on_received_typed)
 
+    def cart_subtotal(self):
+        return sum(price * quantity for _, price, quantity in self.cart.values())
+
+    def effective_total(self):
+        subtotal = self.cart_subtotal()
+        if not self.discount_enabled:
+            return subtotal
+        final_value = parse_money(self.final_price_var.get()) if hasattr(self, "final_price_var") else subtotal
+        if final_value < 0:
+            final_value = 0
+        if final_value > subtotal:
+            final_value = subtotal
+        return final_value
+
+    def toggle_discount(self):
+        self.discount_enabled = bool(self.discount_var.get())
+        if self.discount_enabled:
+            subtotal = self.cart_subtotal()
+            self.final_price_var.set(str(subtotal))
+            self.final_price_frame.pack(fill="x", padx=10, pady=(0, 6))
+            self.final_price_entry.focus_set()
+            self.final_price_entry.selection_range(0, tk.END)
+        else:
+            self.final_price_frame.pack_forget()
+            self.final_total = self.cart_subtotal()
+        self.refresh_cart()
+
+    def on_final_price_typed(self, _event=None):
+        subtotal = self.cart_subtotal()
+        value = parse_money(self.final_price_var.get())
+        if value > subtotal:
+            value = subtotal
+            self.final_price_var.set(str(value))
+        self.final_total = value
+        self.update_payment_display()
+
     def update_payment_display(self):
         if not hasattr(self, "received_label"):
             return
-        total = sum(price * quantity for _, price, quantity in self.cart.values())
+        total = self.effective_total()
         difference = self.received - total
         self.received_label.config(text=money(self.received))
         if difference >= 0:
@@ -623,15 +699,17 @@ class App(tk.Tk):
         if not self.cart:
             messagebox.showwarning("Venta", "Agrega al menos un producto.")
             return
-        total = sum(price * quantity for _, price, quantity in self.cart.values())
+        subtotal = self.cart_subtotal()
+        total = self.effective_total()
+        descuento = subtotal - total
         if self.received < total:
             messagebox.showwarning("Pago insuficiente", "El dinero recibido no alcanza para cubrir el total.")
             return
         now = datetime.now().replace(microsecond=0)
         c = database()
         cur = c.cursor()
-        cur.execute("INSERT INTO ventas(fecha,total,recibido,cambio) VALUES(?,?,?,?)",
-                    (now.isoformat(sep=" "), total, self.received, self.received - total))
+        cur.execute("INSERT INTO ventas(fecha,total,recibido,cambio,descuento) VALUES(?,?,?,?,?)",
+                    (now.isoformat(sep=" "), total, self.received, self.received - total, descuento))
         sale_id = cur.lastrowid
         cur.executemany(
             "INSERT INTO detalle(venta_id,nombre,cantidad,precio) VALUES(?,?,?,?)",
@@ -639,14 +717,23 @@ class App(tk.Tk):
         )
         c.commit()
         c.close()
-        messagebox.showinfo("Venta registrada", f"Venta #{sale_id}\nTotal: {money(total)}\nRecibido: {money(self.received)}\nCambio: {money(self.received - total)}")
+        descuento_texto = f"\nDescuento: {money(descuento)}" if descuento else ""
+        messagebox.showinfo("Venta registrada", f"Venta #{sale_id}\nTotal: {money(total)}{descuento_texto}\nRecibido: {money(self.received)}\nCambio: {money(self.received - total)}")
         self.new_sale()
 
     def new_sale(self):
         self.cart.clear()
         self.received = 0
+        self.discount_enabled = False
+        self.final_total = 0
         if hasattr(self, "custom_received_var"):
             self.custom_received_var.set("0")
+        if hasattr(self, "discount_var"):
+            self.discount_var.set(False)
+        if hasattr(self, "final_price_var"):
+            self.final_price_var.set("0")
+        if hasattr(self, "final_price_frame"):
+            self.final_price_frame.pack_forget()
         self.refresh_cart()
 
     # --------------------------- History -----------------------------------
