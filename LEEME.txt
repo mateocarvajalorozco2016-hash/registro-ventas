@@ -50,3 +50,7 @@ AJUSTES DE ESTA VERSIÓN
 - "Eliminar seleccionado" queda arriba, junto a "VENTA ACTUAL".
 - El TOTAL queda separado y alineado debajo de la lista de venta.
 - Ventas de hoy/semana/mes muestran únicamente Fecha, Producto y Precio.
+
+AJUSTE V9
+- Botones de eliminar/cancelar en gris para que resalten sin usar rojo.
+- Billetes y monedas de "DINERO RECIBIDO" ampliados para facilitar su uso.
