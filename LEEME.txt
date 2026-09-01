@@ -83,3 +83,5 @@ AJUSTE V13
 - En semanas de un mes, clic derecho: Ver productos vendidos.
 - Los totales se calculan por venta completa, sin duplicar una venta que tenga varios productos.
 - Corregido el cálculo del descuento para que 9 x $35.000 con $15.000 de descuento muestre exactamente $300.000.
+
+AJUSTE V14: Se agregó Años -> Meses -> Semanas -> Productos.

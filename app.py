@@ -746,6 +746,10 @@ class App(tk.Tk):
     def period_start(self, period):
         now = datetime.now()
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if period == "Años":
+            self._history_years()
+            return
+
         if period == "Hoy":
             return today
         if period == "Semana":
@@ -1117,6 +1121,84 @@ class App(tk.Tk):
             font=("Segoe UI", 13, "bold")
         ).pack(anchor="e", pady=(8, 0))
 
+
+    def _history_years(self):
+        for w in self.body.winfo_children(): w.destroy()
+        c = database()
+        rows = c.execute("SELECT fecha, total FROM ventas ORDER BY fecha ASC").fetchall()
+        c.close()
+        totals = {}
+        for fecha, total in rows:
+            try:
+                y = datetime.fromisoformat(fecha).year
+            except Exception:
+                try: y = datetime.strptime(str(fecha)[:10], "%Y-%m-%d").year
+                except Exception: continue
+            totals[y] = totals.get(y, 0) + int(round(total or 0))
+
+        tk.Label(self.body, text="VENTAS POR AÑO", bg=self.BG, fg="#17191d",
+                 font=("Segoe UI", 16, "bold")).pack(anchor="w", pady=(0,4))
+        tk.Label(self.body, text="Clic derecho sobre un año para ver sus meses.",
+                 bg=self.BG, fg=self.MUTED, font=("Segoe UI",9)).pack(anchor="w", pady=(0,8))
+        frame = tk.Frame(self.body, bg="white"); frame.pack(fill="both", expand=True)
+        tree = ttk.Treeview(frame, columns=("anio","total"), show="headings")
+        tree.heading("anio", text="Año"); tree.heading("total", text="Total")
+        tree.column("anio", width=300, anchor="w"); tree.column("total", width=220, anchor="e")
+        tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        years = {}
+        for y in sorted(totals, reverse=True):
+            iid = tree.insert("", "end", values=(y, money(totals[y])))
+            years[iid] = y
+
+        menu = tk.Menu(self, tearoff=0)
+        def months():
+            iid = tree.focus()
+            if iid in years: self._history_year_months(years[iid])
+        menu.add_command(label="Ver meses", command=months)
+        def popup(e):
+            iid = tree.identify_row(e.y)
+            if iid:
+                tree.selection_set(iid); tree.focus(iid)
+                menu.tk_popup(e.x_root, e.y_root)
+        tree.bind("<Button-3>", popup)
+        tk.Label(self.body, text=f"TOTAL GENERAL: {money(sum(totals.values()))}",
+                 bg=self.BG, fg="#17191d", font=("Segoe UI",13,"bold")).pack(anchor="e", pady=(8,0))
+
+    def _history_year_months(self, year):
+        names = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto",
+                 "Septiembre","Octubre","Noviembre","Diciembre"]
+        win = tk.Toplevel(self); win.title(f"Meses de {year}"); win.geometry("760x520")
+        tk.Label(win, text=f"MESES DE {year}", font=("Segoe UI",15,"bold"),
+                 anchor="w").pack(fill="x", padx=14, pady=(12,4))
+        tk.Label(win, text="Clic derecho sobre un mes para ver sus semanas.",
+                 fg="#68717a", font=("Segoe UI",9), anchor="w").pack(fill="x", padx=14, pady=(0,8))
+        frame = tk.Frame(win, bg="white"); frame.pack(fill="both", expand=True, padx=10, pady=10)
+        tree = ttk.Treeview(frame, columns=("mes","total"), show="headings")
+        tree.heading("mes", text="Mes"); tree.heading("total", text="Total")
+        tree.column("mes", width=300, anchor="w"); tree.column("total", width=220, anchor="e")
+        tree.pack(fill="both", expand=True)
+        ranges = {}; year_total = 0
+        for m in range(1,13):
+            a = datetime(year,m,1)
+            b = datetime(year+1,1,1) if m==12 else datetime(year,m+1,1)
+            total = self._history_sales_total(a,b); year_total += total
+            iid = tree.insert("", "end", values=(names[m-1], money(total)))
+            ranges[iid] = (a,b,names[m-1])
+        menu = tk.Menu(win, tearoff=0)
+        def weeks():
+            iid=tree.focus()
+            if iid in ranges:
+                a,b,n=ranges[iid]; self._history_month_weeks(a,b,n)
+        menu.add_command(label="Ver semanas", command=weeks)
+        def popup(e):
+            iid=tree.identify_row(e.y)
+            if iid:
+                tree.selection_set(iid); tree.focus(iid); menu.tk_popup(e.x_root,e.y_root)
+        tree.bind("<Button-3>", popup)
+        tk.Label(win, text=f"TOTAL DE {year}: {money(year_total)}",
+                 font=("Segoe UI",12,"bold"), anchor="e").pack(fill="x", padx=14, pady=(0,12))
+
     def show_history(self, period="Hoy"):
         self.current_view = "history"
         self.clear_body()
@@ -1129,7 +1211,7 @@ class App(tk.Tk):
 
         tabs = tk.Frame(self.body, bg=self.BG)
         tabs.pack(fill="x", pady=(0, 8))
-        for p in ("Hoy", "Semana", "Mes"):
+        for p in ("Hoy", "Semana", "Mes", "Años"):
             self.make_button(
                 tabs, p, lambda x=p: self.show_history(x),
                 bg="#dfe6eb" if p == period else "#ffffff",
