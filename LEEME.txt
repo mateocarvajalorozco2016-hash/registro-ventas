@@ -66,3 +66,20 @@ AJUSTE V11
 - El historial guarda el precio final cobrado.
 - Si una venta tiene descuento, el descuento completo se aplica al último producto del pedido.
 - Ejemplo: Ventilador $200.000 + Gorra $55.000, total final $250.000 -> Ventilador $200.000 y Gorra $50.000.
+
+AJUSTE V12
+- Historial: Fecha, Cantidad, Producto, Precio, Descuento y Total.
+- El precio es unitario y se conserva el precio original.
+- El descuento se aplica al último producto del pedido sin alterar el precio original.
+- Corrección del error de 9 x $35.000 con descuento: muestra $35.000, descuento $15.000 y total $300.000.
+- Semana y mes incluyen resumen de total por día.
+
+AJUSTE V13
+- HOY: muestra Fecha, Cantidad, Producto, Precio, Descuento y Total.
+- SEMANA: muestra únicamente Lunes a Domingo y el total de cada día.
+- Clic derecho en un día de la semana: Ver productos vendidos.
+- MES: muestra Enero a Diciembre con el total de cada mes.
+- Clic derecho en un mes: Ver semanas.
+- En semanas de un mes, clic derecho: Ver productos vendidos.
+- Los totales se calculan por venta completa, sin duplicar una venta que tenga varios productos.
+- Corregido el cálculo del descuento para que 9 x $35.000 con $15.000 de descuento muestre exactamente $300.000.

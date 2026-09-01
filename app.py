@@ -711,17 +711,12 @@ class App(tk.Tk):
         cur.execute("INSERT INTO ventas(fecha,total,recibido,cambio,descuento) VALUES(?,?,?,?,?)",
                     (now.isoformat(sep=" "), total, self.received, self.received - total, descuento))
         sale_id = cur.lastrowid
-        # Guardar el precio final realmente cobrado por cada producto.
-        # Si hay descuento, todo el descuento se aplica al último producto.
-        items = list(self.cart.values())
-        rows = []
-        for index, (name, price, quantity) in enumerate(items):
-            precio_final = price
-            if index == len(items) - 1 and descuento > 0:
-                total_anterior = sum(p * q for name2, p, q in items[:index])
-                total_ultimo = max(0, total - total_anterior)
-                precio_final = total_ultimo // quantity if quantity else 0
-            rows.append((sale_id, name, quantity, precio_final))
+        # Guardar siempre el precio original del producto.
+        # El descuento se guarda en la venta, no se modifica el precio unitario.
+        rows = [
+            (sale_id, name, quantity, price)
+            for name, price, quantity in self.cart.values()
+        ]
         cur.executemany(
             "INSERT INTO detalle(venta_id,nombre,cantidad,precio) VALUES(?,?,?,?)",
             rows
@@ -768,70 +763,457 @@ class App(tk.Tk):
             return today.replace(year=today.year + 1, month=1, day=1)
         return today.replace(month=today.month + 1, day=1)
 
-    def show_history(self, period="Hoy"):
-        self.current_view = "history"
-        self.clear_body()
-        start = self.period_start(period)
-        end = self.period_end(period)
-        if period == "Hoy":
-            title = "Ventas de hoy"
-        elif period == "Semana":
-            title = "Ventas de esta semana"
-        else:
-            title = "Ventas de este mes"
+    def _history_query(self, start_date, end_date):
         c = database()
-        total, count = c.execute("SELECT COALESCE(SUM(total),0),COUNT(*) FROM ventas WHERE fecha >= ? AND fecha < ?",
-                                 (start.isoformat(sep=" "), end.isoformat(sep=" "))).fetchone()
-        rows = c.execute("SELECT id,fecha,total,recibido,cambio FROM ventas WHERE fecha >= ? AND fecha < ? ORDER BY id DESC",
-                         (start.isoformat(sep=" "), end.isoformat(sep=" "))).fetchall()
+        rows = c.execute(
+            """SELECT d.venta_id, d.id, v.fecha, d.nombre, d.cantidad,
+                      d.precio, v.total, v.descuento
+               FROM detalle d
+               JOIN ventas v ON v.id = d.venta_id
+               WHERE v.fecha >= ? AND v.fecha < ?
+               ORDER BY v.fecha ASC, v.id ASC, d.id ASC""",
+            (start_date.isoformat(sep=" "), end_date.isoformat(sep=" "))
+        ).fetchall()
         c.close()
+        return rows
 
-        head = tk.Frame(self.body, bg="white")
-        head.pack(fill="x", pady=(0, 10))
-        tk.Label(head, text=title, bg="white", fg="#17191d", font=("Segoe UI", 21, "bold")).pack(anchor="w", padx=18, pady=(15, 3))
-        tk.Label(head, text=f"{count} ventas   •   Total: {money(total)}", bg="white", fg=self.MUTED,
-                 font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=18, pady=(0, 15))
-        tabs = tk.Frame(self.body, bg=self.BG)
-        tabs.pack(fill="x", pady=(0, 8))
-        for p in ("Hoy", "Semana", "Mes"):
-            self.make_button(tabs, p, lambda x=p: self.show_history(x),
-                             bg="#dfe6eb" if p == period else "#ffffff", fg="#252a31").pack(side="left", padx=3, ipady=5, ipadx=8)
+    def _history_sales_total(self, start_date, end_date):
+        rows = self._history_query(start_date, end_date)
+        seen = set()
+        total = 0
+        for sale_id, detail_id, fecha, nombre, cantidad, precio, sale_total, discount in rows:
+            if sale_id not in seen:
+                total += int(round(sale_total or 0))
+                seen.add(sale_id)
+        return total
+
+    def _history_grouped_sales(self, start_date, end_date):
+        rows = self._history_query(start_date, end_date)
+        sales = {}
+        for sale_id, detail_id, fecha, nombre, cantidad, precio, sale_total, discount in rows:
+            if sale_id not in sales:
+                sales[sale_id] = {
+                    "fecha": fecha,
+                    "total": int(round(sale_total or 0)),
+                    "descuento": int(round(discount or 0)),
+                    "items": []
+                }
+            sales[sale_id]["items"].append(
+                (detail_id, nombre, int(cantidad), int(round(precio)))
+            )
+
+        # Reconstruye siempre el precio original y evita errores como 299.997.
+        for sale in sales.values():
+            items = sale["items"]
+            discount = sale["descuento"]
+            original_total = sale["total"] + discount
+            previous_original = 0
+            rebuilt = []
+            for index, (detail_id, name, quantity, stored_price) in enumerate(items):
+                if index < len(items) - 1 or not discount:
+                    unit_price = stored_price
+                    line_original = unit_price * quantity
+                else:
+                    line_original = max(0, original_total - previous_original)
+                    unit_price = line_original // quantity if quantity else 0
+                line_discount = discount if index == len(items) - 1 else 0
+                line_total = line_original - line_discount
+                rebuilt.append({
+                    "detail_id": detail_id,
+                    "nombre": name,
+                    "cantidad": quantity,
+                    "precio": unit_price,
+                    "descuento": line_discount,
+                    "total": line_total
+                })
+                previous_original += line_original
+            sale["items_rebuilt"] = rebuilt
+        return sales
+
+    def _history_products_window(self, title, start_date, end_date):
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.geometry("980x560")
+        win.minsize(820, 460)
+
+        tk.Label(
+            win, text=title, font=("Segoe UI", 15, "bold"),
+            anchor="w"
+        ).pack(fill="x", padx=14, pady=(12, 6))
+
+        frame = tk.Frame(win, bg="white")
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        tree = ttk.Treeview(
+            frame,
+            columns=("fecha", "cantidad", "producto", "precio", "descuento", "total"),
+            show="headings"
+        )
+        for col, text, width in [
+            ("fecha", "Fecha", 130),
+            ("cantidad", "Cantidad", 80),
+            ("producto", "Producto", 300),
+            ("precio", "Precio", 125),
+            ("descuento", "Descuento", 130),
+            ("total", "Total", 145)
+        ]:
+            tree.heading(col, text=text)
+            tree.column(
+                col, width=width,
+                anchor="center" if col != "producto" else "w"
+            )
+        tree.pack(fill="both", expand=True)
+
+        sales = self._history_grouped_sales(start_date, end_date)
+        for sale in sales.values():
+            try:
+                date_display = datetime.fromisoformat(sale["fecha"]).strftime("%d/%m/%Y %H:%M")
+            except ValueError:
+                date_display = str(sale["fecha"])
+            for item in sale["items_rebuilt"]:
+                tree.insert("", "end", values=(
+                    date_display,
+                    item["cantidad"],
+                    item["nombre"],
+                    money(item["precio"]),
+                    money(item["descuento"]) if item["descuento"] else "",
+                    money(item["total"])
+                ))
+
+        total = self._history_sales_total(start_date, end_date)
+        tk.Label(
+            win, text=f"TOTAL: {money(total)}",
+            font=("Segoe UI", 12, "bold"), anchor="e"
+        ).pack(fill="x", padx=14, pady=(0, 12))
+
+    def _history_week_products_menu(self, tree, ranges):
+        menu = tk.Menu(self, tearoff=0)
+
+        def show_products():
+            item = tree.focus()
+            if item in ranges:
+                ds, de, label = ranges[item]
+                self._history_products_window(
+                    f"Productos vendidos - {label}", ds, de
+                )
+
+        menu.add_command(label="Ver productos vendidos", command=show_products)
+
+        def popup(event):
+            iid = tree.identify_row(event.y)
+            if iid:
+                tree.selection_set(iid)
+                tree.focus(iid)
+                menu.tk_popup(event.x_root, event.y_root)
+
+        tree.bind("<Button-3>", popup)
+
+    def _history_week(self, week_start):
+        week_end = week_start + timedelta(days=7)
+        weekdays = [
+            "Lunes", "Martes", "Miércoles", "Jueves",
+            "Viernes", "Sábado", "Domingo"
+        ]
+
+        tk.Label(
+            self.body, text="VENTAS DE ESTA SEMANA",
+            bg=self.BG, fg="#17191d",
+            font=("Segoe UI", 16, "bold")
+        ).pack(anchor="w", pady=(0, 4))
+
+        tk.Label(
+            self.body,
+            text=f"{week_start.strftime('%d/%m/%Y')} - {(week_end - timedelta(days=1)).strftime('%d/%m/%Y')}  •  Clic derecho en un día para ver productos",
+            bg=self.BG, fg=self.MUTED,
+            font=("Segoe UI", 9)
+        ).pack(anchor="w", pady=(0, 8))
 
         frame = tk.Frame(self.body, bg="white")
         frame.pack(fill="both", expand=True)
 
-        # Historial simplificado: únicamente fecha, producto y precio.
-        detail_rows = []
-        c = database()
-        detail_rows = c.execute(
-            """SELECT v.fecha, d.nombre, d.precio * d.cantidad
-               FROM ventas v
-               JOIN detalle d ON d.venta_id = v.id
-               WHERE v.fecha >= ? AND v.fecha < ?
-               ORDER BY v.id DESC, d.id ASC""",
-            (start.isoformat(sep=" "), end.isoformat(sep=" "))
-        ).fetchall()
-        c.close()
+        tree = ttk.Treeview(
+            frame, columns=("dia", "total"), show="headings"
+        )
+        tree.heading("dia", text="Día")
+        tree.heading("total", text="Total")
+        tree.column("dia", width=300, anchor="w")
+        tree.column("total", width=220, anchor="e")
+        tree.pack(fill="both", expand=True, padx=10, pady=10)
 
-        tree = ttk.Treeview(frame, columns=("fecha", "producto", "precio"), show="headings")
-        for col, text, width in [
-            ("fecha", "Fecha", 210),
-            ("producto", "Producto", 520),
-            ("precio", "Precio", 180)
-        ]:
-            tree.heading(col, text=text)
-            tree.column(col, width=width, anchor="center" if col != "producto" else "w")
-        tree.pack(fill="both", expand=True, padx=12, pady=12)
+        ranges = {}
+        week_total = 0
+        for i, day_name in enumerate(weekdays):
+            ds = week_start + timedelta(days=i)
+            de = ds + timedelta(days=1)
+            total = self._history_sales_total(ds, de)
+            week_total += total
+            iid = tree.insert("", "end", values=(day_name, money(total)))
+            ranges[iid] = (ds, de, f"{day_name} {ds.strftime('%d/%m/%Y')}")
 
-        for date_text, product_name, line_price in detail_rows:
-            try:
-                date_display = datetime.fromisoformat(date_text).strftime("%d/%m/%Y %H:%M")
-            except ValueError:
-                date_display = date_text
-            tree.insert("", "end", values=(date_display, product_name, money(line_price)))
+        self._history_week_products_menu(tree, ranges)
 
-        tk.Label(self.body, text="Fecha, producto y precio.", bg=self.BG, fg=self.MUTED,
-                 font=("Segoe UI", 9)).pack(anchor="w", pady=(7, 0))
+        tk.Label(
+            self.body, text=f"TOTAL DE LA SEMANA: {money(week_total)}",
+            bg=self.BG, fg="#17191d",
+            font=("Segoe UI", 13, "bold")
+        ).pack(anchor="e", pady=(8, 0))
+
+    def _history_month_weeks(self, month_start, month_end, month_name):
+        win = tk.Toplevel(self)
+        win.title(f"Semanas de {month_name}")
+        win.geometry("760x520")
+        win.minsize(650, 440)
+
+        tk.Label(
+            win, text=f"SEMANAS DE {month_name.upper()}",
+            font=("Segoe UI", 15, "bold"), anchor="w"
+        ).pack(fill="x", padx=14, pady=(12, 4))
+
+        tk.Label(
+            win,
+            text="Clic derecho sobre una semana para ver los productos vendidos.",
+            fg="#68717a", font=("Segoe UI", 9), anchor="w"
+        ).pack(fill="x", padx=14, pady=(0, 8))
+
+        frame = tk.Frame(win, bg="white")
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        tree = ttk.Treeview(
+            frame, columns=("semana", "periodo", "total"), show="headings"
+        )
+        tree.heading("semana", text="Semana")
+        tree.heading("periodo", text="Periodo")
+        tree.heading("total", text="Total")
+        tree.column("semana", width=120, anchor="center")
+        tree.column("periodo", width=250, anchor="center")
+        tree.column("total", width=170, anchor="e")
+        tree.pack(fill="both", expand=True)
+
+        ranges = {}
+        cursor = month_start - timedelta(days=month_start.weekday())
+        week_number = 1
+        month_total = 0
+
+        while cursor < month_end:
+            full_start = cursor
+            full_end = cursor + timedelta(days=7)
+
+            # La semana siempre es lunes-domingo, pero dentro del mes
+            # solo se contabiliza lo que pertenece a ese mes.
+            rs = max(full_start, month_start)
+            re_ = min(full_end, month_end)
+
+            total = self._history_sales_total(rs, re_)
+            month_total += total
+
+            period_label = (
+                f"{rs.strftime('%d/%m/%Y')} - "
+                f"{(re_ - timedelta(days=1)).strftime('%d/%m/%Y')}"
+            )
+            iid = tree.insert(
+                "", "end",
+                values=(f"Semana {week_number}", period_label, money(total))
+            )
+            ranges[iid] = (
+                rs, re_,
+                f"{month_name} — Semana {week_number} ({period_label})"
+            )
+
+            cursor = full_end
+            week_number += 1
+
+        menu = tk.Menu(win, tearoff=0)
+
+        def show_products():
+            item = tree.focus()
+            if item in ranges:
+                rs, re_, label = ranges[item]
+                self._history_products_window(label, rs, re_)
+
+        menu.add_command(label="Ver productos vendidos", command=show_products)
+
+        def popup(event):
+            iid = tree.identify_row(event.y)
+            if iid:
+                tree.selection_set(iid)
+                tree.focus(iid)
+                menu.tk_popup(event.x_root, event.y_root)
+
+        tree.bind("<Button-3>", popup)
+
+        tk.Label(
+            win, text=f"TOTAL DE {month_name.upper()}: {money(month_total)}",
+            font=("Segoe UI", 12, "bold"), anchor="e"
+        ).pack(fill="x", padx=14, pady=(0, 12))
+
+    def _history_months(self, year):
+        months = [
+            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+        ]
+
+        tk.Label(
+            self.body, text=f"VENTAS DE {year}",
+            bg=self.BG, fg="#17191d",
+            font=("Segoe UI", 16, "bold")
+        ).pack(anchor="w", pady=(0, 4))
+
+        tk.Label(
+            self.body,
+            text="Solo se muestran los totales. Clic derecho en un mes para ver sus semanas.",
+            bg=self.BG, fg=self.MUTED,
+            font=("Segoe UI", 9)
+        ).pack(anchor="w", pady=(0, 8))
+
+        frame = tk.Frame(self.body, bg="white")
+        frame.pack(fill="both", expand=True)
+
+        tree = ttk.Treeview(
+            frame, columns=("mes", "total"), show="headings"
+        )
+        tree.heading("mes", text="Mes")
+        tree.heading("total", text="Total")
+        tree.column("mes", width=300, anchor="w")
+        tree.column("total", width=220, anchor="e")
+        tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        ranges = {}
+        year_total = 0
+
+        for month in range(1, 13):
+            ms = datetime(year, month, 1)
+            me = (
+                datetime(year + 1, 1, 1)
+                if month == 12
+                else datetime(year, month + 1, 1)
+            )
+            total = self._history_sales_total(ms, me)
+            year_total += total
+            iid = tree.insert("", "end", values=(months[month - 1], money(total)))
+            ranges[iid] = (ms, me, months[month - 1])
+
+        menu = tk.Menu(self, tearoff=0)
+
+        def show_weeks():
+            item = tree.focus()
+            if item in ranges:
+                ms, me, name = ranges[item]
+                self._history_month_weeks(ms, me, name)
+
+        menu.add_command(label="Ver semanas", command=show_weeks)
+
+        def popup(event):
+            iid = tree.identify_row(event.y)
+            if iid:
+                tree.selection_set(iid)
+                tree.focus(iid)
+                menu.tk_popup(event.x_root, event.y_root)
+
+        tree.bind("<Button-3>", popup)
+
+        tk.Label(
+            self.body, text=f"TOTAL DEL AÑO: {money(year_total)}",
+            bg=self.BG, fg="#17191d",
+            font=("Segoe UI", 13, "bold")
+        ).pack(anchor="e", pady=(8, 0))
+
+    def show_history(self, period="Hoy"):
+        self.current_view = "history"
+        self.clear_body()
+
+        now = datetime.now()
+        weekdays = [
+            "Lunes", "Martes", "Miércoles", "Jueves",
+            "Viernes", "Sábado", "Domingo"
+        ]
+
+        tabs = tk.Frame(self.body, bg=self.BG)
+        tabs.pack(fill="x", pady=(0, 8))
+        for p in ("Hoy", "Semana", "Mes"):
+            self.make_button(
+                tabs, p, lambda x=p: self.show_history(x),
+                bg="#dfe6eb" if p == period else "#ffffff",
+                fg="#252a31"
+            ).pack(side="left", padx=3, ipady=5, ipadx=8)
+
+        if period == "Hoy":
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            end = start + timedelta(days=1)
+
+            head = tk.Frame(self.body, bg="white")
+            head.pack(fill="x", pady=(0, 10))
+            tk.Label(
+                head,
+                text=f"Ventas de hoy — {weekdays[now.weekday()]}",
+                bg="white", fg="#17191d",
+                font=("Segoe UI", 21, "bold")
+            ).pack(anchor="w", padx=18, pady=(15, 3))
+
+            total = self._history_sales_total(start, end)
+            sales = self._history_grouped_sales(start, end)
+            tk.Label(
+                head,
+                text=f"{len(sales)} ventas   •   Total cobrado: {money(total)}",
+                bg="white", fg=self.MUTED,
+                font=("Segoe UI", 11, "bold")
+            ).pack(anchor="w", padx=18, pady=(0, 15))
+
+            frame = tk.Frame(self.body, bg="white")
+            frame.pack(fill="both", expand=True)
+
+            tree = ttk.Treeview(
+                frame,
+                columns=("fecha", "cantidad", "producto", "precio", "descuento", "total"),
+                show="headings"
+            )
+            for col, text, width in [
+                ("fecha", "Fecha", 125),
+                ("cantidad", "Cantidad", 80),
+                ("producto", "Producto", 270),
+                ("precio", "Precio", 125),
+                ("descuento", "Descuento", 125),
+                ("total", "Total", 145)
+            ]:
+                tree.heading(col, text=text)
+                tree.column(
+                    col, width=width,
+                    anchor="center" if col != "producto" else "w"
+                )
+            tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+            for sale in sales.values():
+                try:
+                    date_display = datetime.fromisoformat(
+                        sale["fecha"]
+                    ).strftime("%d/%m/%Y %H:%M")
+                except ValueError:
+                    date_display = str(sale["fecha"])
+
+                for item in sale["items_rebuilt"]:
+                    tree.insert("", "end", values=(
+                        date_display,
+                        item["cantidad"],
+                        item["nombre"],
+                        money(item["precio"]),
+                        money(item["descuento"]) if item["descuento"] else "",
+                        money(item["total"])
+                    ))
+
+            tk.Label(
+                self.body, text=f"TOTAL DE HOY: {money(total)}",
+                bg=self.BG, fg="#17191d",
+                font=("Segoe UI", 13, "bold")
+            ).pack(anchor="e", pady=(8, 0))
+            return
+
+        if period == "Semana":
+            week_start = (
+                now - timedelta(days=now.weekday())
+            ).replace(hour=0, minute=0, second=0, microsecond=0)
+            self._history_week(week_start)
+            return
+
+        self._history_months(now.year)
 
     def show_sale_detail(self, tree):
         selected = tree.selection()
