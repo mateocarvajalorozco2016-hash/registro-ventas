@@ -1,8 +1,44 @@
-VERSION 4
-Correcciones solicitadas:
-- Los botones de dinero quedan abajo, en la zona central/izquierda, no en el panel derecho.
-- El menú superior izquierdo funciona dentro de la misma ventana como panel lateral.
-- El panel derecho queda para la venta actual, total, recibido, cambio y registrar venta.
-- Vienen imágenes ilustrativas predeterminadas para $1.000, $2.000, $5.000, $10.000, $20.000, $50.000 y $100.000.
-- Las imágenes predeterminadas se pueden reemplazar desde Configuración por las fotos que usted quiera.
-- No incluye productos ni inventario.
+REGISTRO DE VENTAS V7 - ajustes de interfaz y dinero
+
+Esta versión trabaja sobre la V5 y conserva SQLite, imágenes persistentes, ventas y búsqueda tolerante a errores.
+
+Cambios principales:
+- pantalla completa al iniciar; F11 o Esc alternan pantalla completa;
+- buscador y “Nueva venta” en la misma fila, arriba, para aprovechar mejor el espacio;
+- botones de billetes compactos, sin columnas estiradas ni grandes huecos;
+- $100.000 incluido y accesible en Configuración;
+- el botón de billetes no tiene controles extra en la pantalla de venta;
+- Nueva venta a la izquierda y buscador arriba a la derecha, en la misma fila;
+- se eliminó el texto auxiliar que ocupaba espacio;
+- tarjetas de productos un poco más grandes y separadas;
+- clic derecho sobre un producto para eliminarlo con confirmación;
+- vista previa de imágenes de producto más grande y mostrando la imagen completa;
+- configuración de billetes reorganizada para que $100.000 también sea accesible;
+- se quitó el botón inútil “Usar valor”; al escribir o pegar el valor recibido se aplica directamente;
+- entrada de dinero sin reformateo automático: se puede escribir o pegar directamente sin que el cursor mueva los dígitos;
+- total y “Eliminar seleccionado” quedan juntos;
+- botón REGISTRAR VENTA más grande;
+- ventas de hoy/semana/mes usan límites de inicio y fin del período, sin mezclar fechas;
+- no se agregó inventario ni control de existencias.
+
+DATOS
+Los datos creados por el usuario se guardan junto al EXE, en datos/:
+- ventas.db
+- productos/
+- dinero/
+- configuracion.json
+
+Con PyInstaller --onefile, los recursos predeterminados se leen desde la copia incluida en el EXE, pero los datos del usuario siguen guardándose junto al EXE y no en la carpeta temporal de PyInstaller.
+
+GITHUB ACTIONS
+1. Sube el contenido de esta carpeta a un repositorio de GitHub.
+2. Asegúrate de conservar .github/workflows/crear-exe.yml.
+3. En GitHub entra a Actions.
+4. Selecciona “Crear EXE de Windows”.
+5. Pulsa “Run workflow” si quieres generarlo manualmente.
+6. Al terminar, abre la ejecución completada y busca Artifacts.
+7. Descarga “RegistroVentas-Windows”.
+
+REQUISITOS DEL PROYECTO
+- Python solo es necesario para desarrollar o ejecutar desde el código fuente.
+- El usuario final del EXE no necesita Python, Node.js, Apache ni XAMPP.
