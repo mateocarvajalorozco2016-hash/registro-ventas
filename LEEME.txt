@@ -61,3 +61,8 @@ AJUSTE V10
 - El programa calcula automáticamente el descuento y el cambio.
 - El descuento queda guardado en la venta.
 - Las ventas antiguas siguen funcionando gracias a una migración automática de la base de datos.
+
+AJUSTE V11
+- El historial guarda el precio final cobrado.
+- Si una venta tiene descuento, el descuento completo se aplica al último producto del pedido.
+- Ejemplo: Ventilador $200.000 + Gorra $55.000, total final $250.000 -> Ventilador $200.000 y Gorra $50.000.

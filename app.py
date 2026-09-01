@@ -711,9 +711,20 @@ class App(tk.Tk):
         cur.execute("INSERT INTO ventas(fecha,total,recibido,cambio,descuento) VALUES(?,?,?,?,?)",
                     (now.isoformat(sep=" "), total, self.received, self.received - total, descuento))
         sale_id = cur.lastrowid
+        # Guardar el precio final realmente cobrado por cada producto.
+        # Si hay descuento, todo el descuento se aplica al último producto.
+        items = list(self.cart.values())
+        rows = []
+        for index, (name, price, quantity) in enumerate(items):
+            precio_final = price
+            if index == len(items) - 1 and descuento > 0:
+                total_anterior = sum(p * q for name2, p, q in items[:index])
+                total_ultimo = max(0, total - total_anterior)
+                precio_final = total_ultimo // quantity if quantity else 0
+            rows.append((sale_id, name, quantity, precio_final))
         cur.executemany(
             "INSERT INTO detalle(venta_id,nombre,cantidad,precio) VALUES(?,?,?,?)",
-            [(sale_id, name, quantity, price) for name, price, quantity in self.cart.values()]
+            rows
         )
         c.commit()
         c.close()
