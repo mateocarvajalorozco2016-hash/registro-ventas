@@ -569,8 +569,8 @@ class App(tk.Tk):
                 default = DEFAULT_MONEY / f"{denomination}.png"
                 if default.exists():
                     relative = str(default)
-            photo = self.load_photo(relative, 104, 48, f"money-{denomination}"),
-holder = tk.Frame(self.cash_buttons_frame, bg="#f8fafb", width=108, height=56)
+            photo = self.load_photo(relative, 120, 62, f"money-{denomination}")
+            holder = tk.Frame(self.cash_buttons_frame, bg="#f8fafb", width=124, height=70)
             holder.pack(side="left", padx=2, pady=1)
             holder.pack_propagate(False)
             btn = self.make_button(
