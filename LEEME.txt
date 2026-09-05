@@ -85,3 +85,7 @@ AJUSTE V13
 - Corregido el cálculo del descuento para que 9 x $35.000 con $15.000 de descuento muestre exactamente $300.000.
 
 AJUSTE V14: Se agregó Años -> Meses -> Semanas -> Productos.
+
+AJUSTE V15
+- Se puede crear un producto sin imagen y agregarla o cambiarla después desde “Productos y categorías” -> “Editar producto / imagen”.
+- También se puede quitar una imagen existente.

@@ -1375,6 +1375,7 @@ class App(tk.Tk):
         actions.pack(fill="x", pady=5)
         self.make_button(actions, "＋ Agregar producto", self.add_product, bg=self.GREEN, fg="white").pack(side="left", ipady=7, ipadx=8)
         self.make_button(actions, "＋ Agregar categoría", self.add_category, bg="#fff1d2", fg="#76500c").pack(side="left", padx=7, ipady=7, ipadx=8)
+        self.make_button(actions, "🖼 Editar producto / imagen", self.edit_product, bg="#e9edf1", fg="#252a31").pack(side="left", padx=7, ipady=7, ipadx=8)
         self.make_button(actions, "Eliminar producto", self.delete_product, bg="#ffe7e5", fg="#a5261f").pack(side="right", ipady=7, ipadx=8)
         self.make_button(actions, "Eliminar categoría", self.delete_category, bg="#ffe7e5", fg="#a5261f").pack(side="right", padx=7, ipady=7, ipadx=8)
 
@@ -1471,6 +1472,119 @@ class App(tk.Tk):
         self.make_button(w, "GUARDAR PRODUCTO", save, bg=self.GREEN, fg="white",
                          font=("Segoe UI", 11, "bold")).pack(fill="x", padx=30, pady=18, ipady=9)
         name_entry.focus_set()
+
+    def edit_product(self):
+        """Permite completar o cambiar la imagen de un producto ya creado."""
+        if not hasattr(self, "manager_tree"):
+            return
+        selected = self.manager_tree.selection()
+        if not selected:
+            messagebox.showwarning("Editar producto", "Selecciona un producto primero.")
+            return
+
+        pid = int(self.manager_tree.item(selected[0], "tags")[0])
+        c = database()
+        row = c.execute(
+            "SELECT nombre,categoria,precio,imagen FROM productos WHERE id=?", (pid,)
+        ).fetchone()
+        c.close()
+        if not row:
+            return
+
+        name, category, price, old_image = row
+        w = tk.Toplevel(self)
+        w.title("Editar producto")
+        w.geometry("620x560")
+        w.resizable(True, True)
+        w.transient(self)
+        w.grab_set()
+        w.configure(bg="white")
+
+        tk.Label(w, text="Editar producto", bg="white", fg="#17191d",
+                 font=("Segoe UI", 19, "bold")).pack(pady=(18, 4))
+        tk.Label(w, text=name, bg="white", fg="#667085",
+                 font=("Segoe UI", 10)).pack(pady=(0, 12))
+
+        holder = {"path": "", "remove": False}
+        preview_frame = tk.Frame(
+            w, bg="#f0f2f4", width=540, height=300,
+            highlightthickness=1, highlightbackground="#dfe3e8"
+        )
+        preview_frame.pack(fill="both", expand=True, padx=30, pady=8)
+        preview_frame.pack_propagate(False)
+        preview = tk.Label(
+            preview_frame, text="Sin imagen", bg="#f0f2f4", fg="#7a828a",
+            font=("Segoe UI", 10), anchor="center", justify="center"
+        )
+        preview.pack(fill="both", expand=True)
+
+        def show_preview(path):
+            try:
+                im = Image.open(path).convert("RGB")
+                im.thumbnail((510, 270), Image.Resampling.LANCZOS)
+                ph = ImageTk.PhotoImage(im)
+                preview.configure(image=ph, text="")
+                preview.image = ph
+            except Exception:
+                preview.configure(image="", text="No se pudo abrir la imagen.")
+                preview.image = None
+
+        if old_image:
+            existing = BASE / old_image
+            if existing.exists():
+                show_preview(existing)
+            else:
+                preview.configure(text="La imagen guardada ya no existe.")
+
+        def choose_image():
+            path = filedialog.askopenfilename(
+                parent=w,
+                filetypes=[("Imágenes", "*.jpg *.jpeg *.png *.gif *.bmp *.webp")]
+            )
+            if not path:
+                return
+            holder["path"] = path
+            holder["remove"] = False
+            show_preview(path)
+
+        def remove_image():
+            holder["path"] = ""
+            holder["remove"] = True
+            preview.configure(image="", text="Sin imagen")
+            preview.image = None
+
+        buttons = tk.Frame(w, bg="white")
+        buttons.pack(fill="x", padx=30, pady=6)
+        self.make_button(buttons, "🖼 Seleccionar / cambiar imagen", choose_image,
+                         bg="#e9edf1", fg="#252a31").pack(side="left", ipady=7, ipadx=8)
+        self.make_button(buttons, "Quitar imagen", remove_image,
+                         bg="#ffe7e5", fg="#a5261f").pack(side="right", ipady=7, ipadx=8)
+
+        def save():
+            new_relative = old_image
+            try:
+                if holder["path"]:
+                    new_relative = copy_image(holder["path"], PRODUCTS, "producto")
+                elif holder["remove"]:
+                    new_relative = ""
+
+                c = database()
+                c.execute("UPDATE productos SET imagen=? WHERE id=?", (new_relative, pid))
+                c.commit()
+                c.close()
+
+                if (holder["path"] or holder["remove"]) and old_image and old_image != new_relative:
+                    safe_remove_image(old_image)
+
+                w.destroy()
+                self.show_manager()
+            except Exception as exc:
+                messagebox.showerror(
+                    "Producto", f"No se pudo actualizar la imagen.\n{exc}", parent=w
+                )
+
+        self.make_button(w, "GUARDAR CAMBIOS", save, bg=self.GREEN, fg="white",
+                         font=("Segoe UI", 11, "bold")).pack(fill="x", padx=30, pady=(8, 18), ipady=9)
 
     def add_category(self):
         w = tk.Toplevel(self)
