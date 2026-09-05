@@ -328,10 +328,49 @@ class App(tk.Tk):
 
         self.categories_bar = tk.Frame(left, bg="white")
         self.categories_bar.pack(fill="x", padx=12, pady=(0, 3))
-        self.products_area = tk.Frame(left, bg="white")
-        self.products_area.pack(fill="both", expand=True, padx=8, pady=(0, 2))
 
-        # Dinero recibido: siempre abajo, fuera del panel derecho.
+        # Productos en un área desplazable. El panel de dinero queda fijo debajo,
+        # por fuera del scroll, de modo que nunca desaparece aunque haya muchos productos.
+        products_shell = tk.Frame(left, bg="white")
+        products_shell.pack(fill="both", expand=True, padx=8, pady=(0, 2))
+
+        self.products_canvas = tk.Canvas(
+            products_shell, bg="white", highlightthickness=0, bd=0
+        )
+        self.products_scrollbar = ttk.Scrollbar(
+            products_shell, orient="vertical", command=self.products_canvas.yview
+        )
+        self.products_canvas.configure(yscrollcommand=self.products_scrollbar.set)
+        self.products_scrollbar.pack(side="right", fill="y")
+        self.products_canvas.pack(side="left", fill="both", expand=True)
+
+        self.products_area = tk.Frame(self.products_canvas, bg="white")
+        self.products_window = self.products_canvas.create_window(
+            (0, 0), window=self.products_area, anchor="nw"
+        )
+
+        self.products_area.bind(
+            "<Configure>",
+            lambda _e: self.products_canvas.configure(
+                scrollregion=self.products_canvas.bbox("all")
+            )
+        )
+        self.products_canvas.bind(
+            "<Configure>",
+            lambda e: self.products_canvas.itemconfigure(
+                self.products_window, width=e.width
+            )
+        )
+
+        # Desplazamiento con rueda del mouse / touchpad.
+        self.products_canvas.bind("<MouseWheel>", self._products_mousewheel)
+        self.products_canvas.bind("<Button-4>", self._products_mousewheel)
+        self.products_canvas.bind("<Button-5>", self._products_mousewheel)
+        self.products_area.bind("<MouseWheel>", self._products_mousewheel)
+        self.products_area.bind("<Button-4>", self._products_mousewheel)
+        self.products_area.bind("<Button-5>", self._products_mousewheel)
+
+        # Dinero recibido: siempre abajo, fuera del panel de productos desplazable.
         money_box = tk.Frame(left, bg="#f8fafb", highlightthickness=1, highlightbackground="#dde2e7")
         money_box.pack(fill="x", padx=12, pady=(2, 7))
         tk.Label(money_box, text="DINERO RECIBIDO", bg="#f8fafb", fg="#252a31",
@@ -430,6 +469,18 @@ class App(tk.Tk):
         self.render_products()
         self.refresh_cart()
 
+    def _products_mousewheel(self, event):
+        # Windows/macOS: event.delta; Linux: Button-4/5.
+        if getattr(event, "num", None) == 4:
+            self.products_canvas.yview_scroll(-3, "units")
+        elif getattr(event, "num", None) == 5:
+            self.products_canvas.yview_scroll(3, "units")
+        else:
+            delta = int(-1 * (event.delta / 120)) if event.delta else 0
+            if delta:
+                self.products_canvas.yview_scroll(delta, "units")
+        return "break"
+
     def load_categories(self):
         for w in self.categories_bar.winfo_children():
             w.destroy()
@@ -505,12 +556,13 @@ class App(tk.Tk):
         else:
             start_row = 0
 
-        # Tarjetas un poco más grandes, pero se adaptan al ancho disponible.
-        available = max(self.products_area.winfo_width(), 820)
-        columns = max(3, min(6, available // 145))
+        # Cinco productos exactos por fila, para que las imágenes y nombres
+        # tengan un tamaño cómodo y la vista quede siempre ordenada.
+        columns = 5
         card_w, card_h = 138, 178
         for col in range(columns):
             self.products_area.grid_columnconfigure(col, weight=1, uniform="product")
+        self.products_canvas.yview_moveto(0)
         for i, (pid, name, category, price, image) in enumerate(rows):
             r, col = start_row + i // columns, i % columns
             card = tk.Frame(self.products_area, bg="#eef2f5", width=card_w, height=card_h,
