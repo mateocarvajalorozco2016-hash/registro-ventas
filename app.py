@@ -1419,30 +1419,164 @@ class App(tk.Tk):
     def show_manager(self):
         self.current_view = "manager"
         self.clear_body()
-        tk.Label(self.body, text="Productos y categorías", bg=self.BG, fg="#17191d",
-                 font=("Segoe UI", 21, "bold")).pack(anchor="w", pady=(5, 2))
-        tk.Label(self.body, text="Aquí puedes agregar, eliminar y administrar tus productos y categorías.",
-                 bg=self.BG, fg=self.MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 10))
-        actions = tk.Frame(self.body, bg=self.BG)
-        actions.pack(fill="x", pady=5)
-        self.make_button(actions, "＋ Agregar producto", self.add_product, bg=self.GREEN, fg="white").pack(side="left", ipady=7, ipadx=8)
-        self.make_button(actions, "＋ Agregar categoría", self.add_category, bg="#fff1d2", fg="#76500c").pack(side="left", padx=7, ipady=7, ipadx=8)
-        self.make_button(actions, "🖼 Editar producto / imagen", self.edit_product, bg="#e9edf1", fg="#252a31").pack(side="left", padx=7, ipady=7, ipadx=8)
-        self.make_button(actions, "Eliminar producto", self.delete_product, bg="#ffe7e5", fg="#a5261f").pack(side="right", ipady=7, ipadx=8)
-        self.make_button(actions, "Eliminar categoría", self.delete_category, bg="#ffe7e5", fg="#a5261f").pack(side="right", padx=7, ipady=7, ipadx=8)
+        self.body.configure(padx=14, pady=12)
+        self.manager_selected_id = None
+        if not hasattr(self, "manager_category"):
+            self.manager_category = "Todas"
 
-        frame = tk.Frame(self.body, bg="white")
-        frame.pack(fill="both", expand=True, pady=8)
-        self.manager_tree = ttk.Treeview(frame, columns=("id", "name", "cat", "price", "img"), show="headings")
-        for col, text, width in [("id", "ID", 60), ("name", "Producto", 300), ("cat", "Categoría", 190), ("price", "Precio", 150), ("img", "Imagen", 100)]:
-            self.manager_tree.heading(col, text=text)
-            self.manager_tree.column(col, width=width, anchor="center" if col != "name" else "w")
-        self.manager_tree.pack(fill="both", expand=True, padx=10, pady=10)
+        # Encabezado limpio, sin la tabla llena de texto.
+        head = tk.Frame(self.body, bg=self.BG)
+        head.pack(fill="x", pady=(0, 8))
+        title = tk.Frame(head, bg=self.BG)
+        title.pack(side="left", fill="x", expand=True)
+        tk.Label(title, text="Productos", bg=self.BG, fg="#17191d",
+                 font=("Segoe UI", 23, "bold")).pack(anchor="w")
+        tk.Label(title, text="Busca, filtra y administra tus productos con sus imágenes.",
+                 bg=self.BG, fg=self.MUTED, font=("Segoe UI", 10)).pack(anchor="w", pady=(1, 0))
+
+        actions = tk.Frame(head, bg=self.BG)
+        actions.pack(side="right", anchor="e")
+        self.make_button(actions, "＋ Producto", self.add_product, bg=self.GREEN, fg="white",
+                         font=("Segoe UI", 10, "bold")).pack(side="left", ipady=7, ipadx=9)
+        self.make_button(actions, "＋ Categoría", self.add_category, bg="#fff1d2", fg="#76500c",
+                         font=("Segoe UI", 10, "bold")).pack(side="left", padx=7, ipady=7, ipadx=9)
+        self.make_button(actions, "🖼 Editar imagen", self.edit_product, bg="#e9edf1", fg="#252a31",
+                         font=("Segoe UI", 10, "bold")).pack(side="left", ipady=7, ipadx=9)
+        self.make_button(actions, "Eliminar", self.delete_product, bg="#ffe7e5", fg="#a5261f",
+                         font=("Segoe UI", 10, "bold")).pack(side="left", padx=(7, 0), ipady=7, ipadx=9)
+
+        # Barra compacta: un buscador grande + categoría en desplegable.
+        filters = tk.Frame(self.body, bg="white", highlightthickness=1, highlightbackground="#e0e5ea")
+        filters.pack(fill="x", pady=(0, 9))
+        tk.Label(filters, text="🔎", bg="white", fg="#667085",
+                 font=("Segoe UI", 14)).pack(side="left", padx=(12, 4))
+        self.manager_query = tk.StringVar()
+        search = tk.Entry(filters, textvariable=self.manager_query, bg="white", fg="#20242a",
+                          relief="flat", bd=0, font=("Segoe UI", 12))
+        search.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 10))
+        search.insert(0, "Buscar producto...")
+        search.config(fg="#98a2b3")
+        def focus_search(_e=None):
+            if search.get() == "Buscar producto...":
+                search.delete(0, "end")
+                search.config(fg="#20242a")
+        def blur_search(_e=None):
+            if not search.get().strip():
+                search.insert(0, "Buscar producto...")
+                search.config(fg="#98a2b3")
+        search.bind("<FocusIn>", focus_search)
+        search.bind("<FocusOut>", blur_search)
+        search.bind("<KeyRelease>", lambda _e: self.render_manager_products())
+
+        tk.Label(filters, text="Categoría", bg="white", fg="#667085",
+                 font=("Segoe UI", 9, "bold")).pack(side="left", padx=(6, 5))
+        c = database()
+        cats = [row[0] for row in c.execute("SELECT nombre FROM categorias ORDER BY nombre COLLATE NOCASE")]
+        c.close()
+        values = ["Todas"] + cats
+        if self.manager_category not in values:
+            self.manager_category = "Todas"
+        self.manager_category_var = tk.StringVar(value=self.manager_category)
+        combo = ttk.Combobox(filters, textvariable=self.manager_category_var, values=values,
+                             state="readonly", width=20, font=("Segoe UI", 10))
+        combo.pack(side="left", padx=(0, 12), pady=7, ipady=2)
+        combo.bind("<<ComboboxSelected>>", lambda _e: self.set_manager_category())
+
+        # Área de tarjetas con desplazamiento. Aquí NO se compra: solo se visualiza/selecciona.
+        shell = tk.Frame(self.body, bg="white", highlightthickness=1, highlightbackground="#e0e5ea")
+        shell.pack(fill="both", expand=True)
+        self.manager_canvas = tk.Canvas(shell, bg="white", highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(shell, orient="vertical", command=self.manager_canvas.yview)
+        self.manager_canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        self.manager_canvas.pack(side="left", fill="both", expand=True)
+        self.manager_area = tk.Frame(self.manager_canvas, bg="white")
+        self.manager_window = self.manager_canvas.create_window((0, 0), window=self.manager_area, anchor="nw")
+        self.manager_area.bind("<Configure>", lambda _e: self.manager_canvas.configure(scrollregion=self.manager_canvas.bbox("all")))
+        self.manager_canvas.bind("<Configure>", lambda e: self.manager_canvas.itemconfigure(self.manager_window, width=e.width))
+        self.manager_canvas.bind("<MouseWheel>", self._manager_mousewheel)
+        self.manager_area.bind("<MouseWheel>", self._manager_mousewheel)
+        self.render_manager_products()
+
+    def set_manager_category(self):
+        self.manager_category = self.manager_category_var.get() or "Todas"
+        self.render_manager_products()
+
+    def _manager_mousewheel(self, event):
+        if getattr(event, "num", None) == 4:
+            self.manager_canvas.yview_scroll(-3, "units")
+        elif getattr(event, "num", None) == 5:
+            self.manager_canvas.yview_scroll(3, "units")
+        else:
+            delta = int(-1 * (event.delta / 120)) if event.delta else 0
+            if delta:
+                self.manager_canvas.yview_scroll(delta, "units")
+        return "break"
+
+    def render_manager_products(self):
+        if not hasattr(self, "manager_area"):
+            return
+        for w in self.manager_area.winfo_children():
+            w.destroy()
         c = database()
         rows = c.execute("SELECT id,nombre,categoria,precio,imagen FROM productos ORDER BY nombre COLLATE NOCASE,id").fetchall()
         c.close()
-        for pid, name, cat, price, image in rows:
-            self.manager_tree.insert("", "end", values=(pid, name, cat, money(price), "✓" if image else "—"), tags=(str(pid),))
+        category = getattr(self, "manager_category", "Todas")
+        if category != "Todas":
+            rows = [r for r in rows if r[2] == category]
+        query = getattr(self, "manager_query", tk.StringVar()).get().strip() if hasattr(self, "manager_query") else ""
+        if query == "Buscar producto...":
+            query = ""
+        if query:
+            q = normalize(query)
+            rows = [r for r in rows if q in normalize(r[1]) or q in normalize(r[2])]
+
+        if not rows:
+            box = tk.Frame(self.manager_area, bg="white")
+            box.grid(row=0, column=0, columnspan=7, pady=80)
+            tk.Label(box, text="No hay productos para mostrar", bg="white", fg="#343a40",
+                     font=("Segoe UI", 15, "bold")).pack()
+            tk.Label(box, text="Prueba otra búsqueda o agrega un producto nuevo.", bg="white", fg=self.MUTED,
+                     font=("Segoe UI", 10)).pack(pady=(5, 12))
+            self.make_button(box, "＋ Agregar producto", self.add_product, bg=self.GREEN, fg="white").pack(ipady=7, ipadx=10)
+            return
+
+        # Seis productos por fila: más imagen y menos texto amontonado.
+        columns = 6
+        card_w, card_h = 175, 205
+        for col in range(columns):
+            self.manager_area.grid_columnconfigure(col, weight=1, uniform="manager_product")
+
+        for i, (pid, name, cat, price, image) in enumerate(rows):
+            r, col = i // columns, i % columns
+            selected = (pid == getattr(self, "manager_selected_id", None))
+            card_bg = "#e9f7f0" if selected else "#f7f9fb"
+            border = self.GREEN if selected else "#e1e6eb"
+            card = tk.Frame(self.manager_area, bg=card_bg, width=card_w, height=card_h,
+                            highlightthickness=2 if selected else 1, highlightbackground=border, cursor="hand2")
+            card.grid(row=r, column=col, padx=7, pady=7, sticky="nsew")
+            card.grid_propagate(False)
+            photo = self.load_photo(image, 145, 120, f"manager-product-{pid}")
+            if photo:
+                visual = tk.Label(card, image=photo, bg=card_bg)
+                visual.image = photo
+            else:
+                visual = tk.Label(card, text="🖼\nSin imagen", bg=card_bg, fg="#98a2b3",
+                                  font=("Segoe UI", 10), justify="center")
+            visual.pack(pady=(9, 5))
+            tk.Label(card, text=name, bg=card_bg, fg="#20252b", font=("Segoe UI", 10, "bold"),
+                     wraplength=155, justify="center").pack(padx=7)
+            tk.Label(card, text=money(price), bg=card_bg, fg=self.GREEN, font=("Segoe UI", 11, "bold")).pack(pady=(2, 0))
+            tk.Label(card, text=cat, bg=card_bg, fg="#7a828a", font=("Segoe UI", 8)).pack(pady=(0, 5))
+
+            def select(_e, p=pid):
+                self.manager_selected_id = p
+                self.render_manager_products()
+            for widget in card.winfo_children():
+                widget.bind("<Button-1>", select)
+            card.bind("<Button-1>", select)
+
+        self.manager_canvas.yview_moveto(0)
 
     def add_product(self):
         w = tk.Toplevel(self)
@@ -1527,14 +1661,11 @@ class App(tk.Tk):
 
     def edit_product(self):
         """Permite completar o cambiar la imagen de un producto ya creado."""
-        if not hasattr(self, "manager_tree"):
-            return
-        selected = self.manager_tree.selection()
-        if not selected:
+        pid = getattr(self, "manager_selected_id", None)
+        if not pid:
             messagebox.showwarning("Editar producto", "Selecciona un producto primero.")
             return
-
-        pid = int(self.manager_tree.item(selected[0], "tags")[0])
+        pid = int(pid)
         c = database()
         row = c.execute(
             "SELECT nombre,categoria,precio,imagen FROM productos WHERE id=?", (pid,)
@@ -1665,13 +1796,11 @@ class App(tk.Tk):
         entry.focus_set()
 
     def delete_product(self):
-        if not hasattr(self, "manager_tree"):
-            return
-        selected = self.manager_tree.selection()
-        if not selected:
+        pid = getattr(self, "manager_selected_id", None)
+        if not pid:
             messagebox.showwarning("Eliminar producto", "Selecciona un producto primero.")
             return
-        pid = int(self.manager_tree.item(selected[0], "tags")[0])
+        pid = int(pid)
         c = database()
         row = c.execute("SELECT nombre,imagen FROM productos WHERE id=?", (pid,)).fetchone()
         c.close()
