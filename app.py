@@ -326,8 +326,21 @@ class App(tk.Tk):
                          activebackground="#e1e5e9", font=("Segoe UI", 11, "bold"),
                          width=3).grid(row=0, column=1, padx=(6, 0), ipady=5)
 
-        self.categories_bar = tk.Frame(left, bg="white")
-        self.categories_bar.pack(fill="x", padx=12, pady=(0, 3))
+        # Categorías: zona de altura fija con desplazamiento horizontal.
+        # Así, aunque existan muchas categorías, NO reducen ni deforman la zona
+        # de productos ni la parte del dinero.
+        category_shell = tk.Frame(left, bg="white", height=46)
+        category_shell.pack(fill="x", padx=12, pady=(0, 3))
+        category_shell.pack_propagate(False)
+        self.category_canvas = tk.Canvas(category_shell, bg="white", highlightthickness=0, bd=0, height=44)
+        category_scroll = ttk.Scrollbar(category_shell, orient="horizontal", command=self.category_canvas.xview)
+        self.category_canvas.configure(xscrollcommand=category_scroll.set)
+        self.category_canvas.pack(side="top", fill="both", expand=True)
+        category_scroll.pack(side="bottom", fill="x")
+        self.categories_bar = tk.Frame(self.category_canvas, bg="white")
+        self.category_window = self.category_canvas.create_window((0, 0), window=self.categories_bar, anchor="nw")
+        self.categories_bar.bind("<Configure>", lambda _e: self.category_canvas.configure(scrollregion=self.category_canvas.bbox("all")))
+        self.category_canvas.bind("<Configure>", lambda e: self.category_canvas.itemconfigure(self.category_window, height=max(1, e.height)))
 
         # Productos en un área desplazable. El panel de dinero queda fijo debajo,
         # por fuera del scroll, de modo que nunca desaparece aunque haya muchos productos.
@@ -496,6 +509,9 @@ class App(tk.Tk):
                              fg="#1f2933", font=("Segoe UI", 9, "bold")).pack(side="left", padx=2, pady=2, ipady=5, ipadx=5)
         self.make_button(self.categories_bar, "＋ Categoría", self.add_category,
                          bg="#fff1d2", fg="#7a5714").pack(side="left", padx=3, pady=2, ipady=5, ipadx=5)
+        if hasattr(self, "category_canvas"):
+            self.category_canvas.update_idletasks()
+            self.category_canvas.configure(scrollregion=self.category_canvas.bbox("all"))
 
     def choose_category(self, category):
         self.category = category
@@ -1440,6 +1456,8 @@ class App(tk.Tk):
                          font=("Segoe UI", 10, "bold")).pack(side="left", ipady=7, ipadx=9)
         self.make_button(actions, "＋ Categoría", self.add_category, bg="#fff1d2", fg="#76500c",
                          font=("Segoe UI", 10, "bold")).pack(side="left", padx=7, ipady=7, ipadx=9)
+        self.make_button(actions, "🗑 Eliminar categoría", self.delete_category, bg="#ffe7e5", fg="#a5261f",
+                         font=("Segoe UI", 10, "bold")).pack(side="left", padx=7, ipady=7, ipadx=9)
         self.make_button(actions, "🖼 Editar imagen", self.edit_product, bg="#e9edf1", fg="#252a31",
                          font=("Segoe UI", 10, "bold")).pack(side="left", ipady=7, ipadx=9)
         self.make_button(actions, "Eliminar", self.delete_product, bg="#ffe7e5", fg="#a5261f",
@@ -1817,41 +1835,111 @@ class App(tk.Tk):
         self.show_manager()
 
     def delete_category(self):
-        # Un selector sencillo dentro de la misma ventana de gestión.
+        """Elimina una categoría desde Productos y categorías.
+
+        Si todavía tiene productos, permite escoger otra categoría para
+        trasladarlos antes de eliminarla, evitando productos huérfanos.
+        """
         c = database()
         cats = [r[0] for r in c.execute("SELECT nombre FROM categorias ORDER BY nombre COLLATE NOCASE")]
         c.close()
         if not cats:
             messagebox.showinfo("Categorías", "No hay categorías para eliminar.")
             return
+
         w = tk.Toplevel(self)
         w.title("Eliminar categoría")
-        w.geometry("430x260")
+        w.geometry("500x360")
+        w.resizable(False, False)
         w.transient(self)
         w.grab_set()
         w.configure(bg="white")
-        tk.Label(w, text="Eliminar categoría", bg="white", font=("Segoe UI", 18, "bold")).pack(pady=18)
+
+        tk.Label(w, text="Eliminar categoría", bg="white", fg="#17191d",
+                 font=("Segoe UI", 18, "bold")).pack(pady=(20, 6))
+        tk.Label(w, text="Selecciona la categoría que quieres quitar.", bg="white", fg="#667085",
+                 font=("Segoe UI", 10)).pack(pady=(0, 16))
+
+        form = tk.Frame(w, bg="white")
+        form.pack(fill="x", padx=30)
+        tk.Label(form, text="Categoría", bg="white", fg="#333",
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w")
         var = tk.StringVar(value=cats[0])
-        ttk.Combobox(w, textvariable=var, values=cats, state="readonly").pack(fill="x", padx=30, ipady=5)
-        tk.Label(w, text="No se puede eliminar una categoría que todavía tenga productos.", bg="white", fg="#667085",
-                 wraplength=350, font=("Segoe UI", 9)).pack(pady=12)
+        combo = ttk.Combobox(form, textvariable=var, values=cats, state="readonly", font=("Segoe UI", 10))
+        combo.pack(fill="x", pady=(4, 14), ipady=4)
+
+        info = tk.Label(form, text="", bg="white", fg="#667085", justify="left",
+                        wraplength=430, font=("Segoe UI", 9))
+        info.pack(anchor="w", pady=(0, 10))
+
+        target_label = tk.Label(form, text="Mover sus productos a", bg="white", fg="#333",
+                                font=("Segoe UI", 10, "bold"))
+        target_var = tk.StringVar()
+        target_combo = ttk.Combobox(form, textvariable=target_var, state="readonly", font=("Segoe UI", 10))
+        target_label.pack_forget()
+        target_combo.pack_forget()
+
+        def refresh_info(*_):
+            category = var.get()
+            c = database()
+            count = c.execute("SELECT COUNT(*) FROM productos WHERE categoria=?", (category,)).fetchone()[0]
+            c.close()
+            if count:
+                others = [x for x in cats if x != category]
+                info.configure(text=f"Esta categoría tiene {count} producto(s). Para eliminarla, primero mueve esos productos a otra categoría.", fg="#a15c00")
+                if others:
+                    target_combo.configure(values=others)
+                    if target_var.get() not in others:
+                        target_var.set(others[0])
+                    target_label.pack(anchor="w", pady=(2, 4))
+                    target_combo.pack(fill="x", ipady=4)
+                else:
+                    target_label.pack_forget()
+                    target_combo.pack_forget()
+            else:
+                info.configure(text="La categoría no tiene productos y se puede eliminar directamente.", fg="#667085")
+                target_label.pack_forget()
+                target_combo.pack_forget()
+
+        combo.bind("<<ComboboxSelected>>", refresh_info)
+        refresh_info()
+
         def delete():
             category = var.get()
             c = database()
             count = c.execute("SELECT COUNT(*) FROM productos WHERE categoria=?", (category,)).fetchone()[0]
             if count:
-                c.close()
-                messagebox.showwarning("Categoría", f"No se puede eliminar '{category}' porque tiene {count} producto(s).", parent=w)
-                return
-            if not messagebox.askyesno("Confirmar eliminación", f"¿Eliminar la categoría '{category}'?", parent=w):
-                c.close()
-                return
+                target = target_var.get().strip()
+                if not target or target == category:
+                    c.close()
+                    messagebox.showwarning("Categoría", "Escoge otra categoría para mover los productos.", parent=w)
+                    return
+                if not messagebox.askyesno("Confirmar eliminación",
+                        f"La categoría '{category}' tiene {count} producto(s).\n\n"
+                        f"Se moverán a '{target}' y luego se eliminará la categoría.\n\n¿Continuar?", parent=w):
+                    c.close()
+                    return
+                c.execute("UPDATE productos SET categoria=? WHERE categoria=?", (target, category))
+            else:
+                if not messagebox.askyesno("Confirmar eliminación",
+                        f"¿Eliminar la categoría '{category}'?", parent=w):
+                    c.close()
+                    return
             c.execute("DELETE FROM categorias WHERE nombre=?", (category,))
             c.commit()
             c.close()
+            if getattr(self, "category", "Todos") == category:
+                self.category = "Todos"
+            if getattr(self, "manager_category", "Todas") == category:
+                self.manager_category = "Todas"
             w.destroy()
             self.refresh_current_view()
-        self.make_button(w, "ELIMINAR", delete, bg="#d92d20", fg="white").pack(pady=8, ipady=7, ipadx=15)
+
+        buttons = tk.Frame(w, bg="white")
+        buttons.pack(fill="x", padx=30, pady=18)
+        self.make_button(buttons, "Cancelar", w.destroy, bg="#eef1f4", fg="#252a31").pack(side="left", ipady=7, ipadx=15)
+        self.make_button(buttons, "🗑 ELIMINAR", delete, bg="#d92d20", fg="white",
+                         font=("Segoe UI", 10, "bold")).pack(side="right", ipady=7, ipadx=15)
 
     # --------------------------- Clients / Fiados -------------------------
     def client_balance(self, client_id, c=None):
