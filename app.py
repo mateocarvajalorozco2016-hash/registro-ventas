@@ -389,13 +389,16 @@ class App(tk.Tk):
         # touchpad (clic/pressionar + mover el dedo), sin necesidad de mouse.
         self._bind_canvas_drag(self.products_canvas, horizontal=False)
 
-        # Categorías: rueda horizontal con Shift + rueda y arrastre directo.
+        # Categorías: desplazamiento horizontal con touchpad (dos dedos),
+        # Shift + rueda y arrastre manteniendo presionado el touchpad.
+        self.category_canvas.bind("<MouseWheel>", self._categories_mousewheel)
         self.category_canvas.bind("<Shift-MouseWheel>", self._categories_mousewheel)
-        self.category_canvas.bind("<Shift-Button-4>", self._categories_mousewheel)
-        self.category_canvas.bind("<Shift-Button-5>", self._categories_mousewheel)
+        self.category_canvas.bind("<Button-4>", self._categories_mousewheel)
+        self.category_canvas.bind("<Button-5>", self._categories_mousewheel)
+        self.categories_bar.bind("<MouseWheel>", self._categories_mousewheel)
         self.categories_bar.bind("<Shift-MouseWheel>", self._categories_mousewheel)
-        self.categories_bar.bind("<Shift-Button-4>", self._categories_mousewheel)
-        self.categories_bar.bind("<Shift-Button-5>", self._categories_mousewheel)
+        self.categories_bar.bind("<Button-4>", self._categories_mousewheel)
+        self.categories_bar.bind("<Button-5>", self._categories_mousewheel)
         self._bind_canvas_drag(self.category_canvas, horizontal=True)
 
         # Dinero recibido: siempre abajo, fuera del panel de productos desplazable.
@@ -548,6 +551,35 @@ class App(tk.Tk):
     def _canvas_drag_end(self, canvas, event):
         canvas._drag_last = None
 
+    def _bind_category_drag(self, widget):
+        """Permite arrastrar la barra aunque el dedo empiece encima de un botón."""
+        widget.bind("<ButtonPress-1>", self._category_button_press, add="+")
+        widget.bind("<B1-Motion>", self._category_button_motion, add="+")
+        widget.bind("<ButtonRelease-1>", self._category_button_release, add="+")
+        widget.bind("<MouseWheel>", self._categories_mousewheel, add="+")
+        widget.bind("<Shift-MouseWheel>", self._categories_mousewheel, add="+")
+
+    def _category_button_press(self, event):
+        self._category_drag_widget = event.widget
+        self._category_drag_last_x = event.x_root
+        self._category_drag_moved = False
+
+    def _category_button_motion(self, event):
+        if not hasattr(self, "_category_drag_last_x"):
+            return
+        dx = event.x_root - self._category_drag_last_x
+        if abs(dx) >= 1:
+            self._category_drag_moved = True
+            self.category_canvas.xview_scroll(int(-dx), "units")
+            self._category_drag_last_x = event.x_root
+
+    def _category_button_release(self, event):
+        # Si se arrastró, impedir que el botón interprete el gesto como un clic.
+        moved = getattr(self, "_category_drag_moved", False)
+        self._category_drag_last_x = None
+        if moved:
+            return "break"
+
     def load_categories(self):
         for w in self.categories_bar.winfo_children():
             w.destroy()
@@ -557,12 +589,16 @@ class App(tk.Tk):
         if self.category != "Todos" and self.category not in cats:
             self.category = "Todos"
         for name in ["Todos"] + cats:
-            self.make_button(self.categories_bar, name,
-                             lambda n=name: self.choose_category(n),
-                             bg="#dfe6eb" if name == self.category else "#f0f2f4",
-                             fg="#1f2933", font=("Segoe UI", 9, "bold")).pack(side="left", padx=2, pady=2, ipady=5, ipadx=5)
-        self.make_button(self.categories_bar, "＋ Categoría", self.add_category,
-                         bg="#fff1d2", fg="#7a5714").pack(side="left", padx=3, pady=2, ipady=5, ipadx=5)
+            btn = self.make_button(self.categories_bar, name,
+                                   lambda n=name: self.choose_category(n),
+                                   bg="#dfe6eb" if name == self.category else "#f0f2f4",
+                                   fg="#1f2933", font=("Segoe UI", 9, "bold"))
+            btn.pack(side="left", padx=2, pady=2, ipady=5, ipadx=5)
+            self._bind_category_drag(btn)
+        btn = self.make_button(self.categories_bar, "＋ Categoría", self.add_category,
+                               bg="#fff1d2", fg="#7a5714")
+        btn.pack(side="left", padx=3, pady=2, ipady=5, ipadx=5)
+        self._bind_category_drag(btn)
         if hasattr(self, "category_canvas"):
             self.category_canvas.update_idletasks()
             self.category_canvas.configure(scrollregion=self.category_canvas.bbox("all"))
