@@ -352,19 +352,22 @@ class App(tk.Tk):
         self.custom_received_entry.bind("<FocusIn>", self.on_received_focus)
         self.custom_received_entry.bind("<<Paste>>", self.on_received_paste)
 
-        # Descuento destacado: cuadro negro para que se identifique fácilmente.
-        discount_box = tk.Frame(custom, bg="#111111", highlightthickness=1, highlightbackground="#000000")
-        discount_box.pack(side="left", padx=(14, 4), ipady=2)
+        # Descuento: solo un cuadrado negro para marcar/desmarcar.
+        discount_area = tk.Frame(custom, bg="#f8fafb")
+        discount_area.pack(side="left", padx=(14, 4))
         self.discount_var = tk.BooleanVar(value=False)
         self.discount_check = tk.Checkbutton(
-            discount_box, text="  Descuento", variable=self.discount_var,
-            command=self.toggle_discount, bg="#111111", fg="white",
-            activebackground="#111111", activeforeground="white",
-            selectcolor="#111111",
-            font=("Segoe UI", 10, "bold"), bd=0, relief="flat",
-            cursor="hand2", padx=7, pady=2
+            discount_area, text="", variable=self.discount_var,
+            command=self.toggle_discount, indicatoron=False,
+            bg="#111111", fg="white", activebackground="#111111",
+            activeforeground="white", selectcolor="#111111",
+            bd=1, relief="solid", highlightthickness=0,
+            width=2, height=1, font=("Segoe UI", 11, "bold"),
+            cursor="hand2",
         )
-        self.discount_check.pack()
+        self.discount_check.pack(side="left", ipadx=2, ipady=1)
+        tk.Label(discount_area, text="Descuento", bg="#f8fafb", fg="#333",
+                 font=("Segoe UI", 10, "bold")).pack(side="left", padx=(6, 0))
 
         self.final_price_frame = tk.Frame(money_box, bg="#f8fafb")
         self.final_price_label = tk.Label(
@@ -1657,51 +1660,204 @@ class App(tk.Tk):
             self.client_form(cid, row)
 
     def client_form(self, cid=None, row=None):
+        # Al crear un cliente, el pedido se selecciona en esta misma ventana.
+        # Así no hay que crear primero el cliente y luego buscarlo para fiarle.
         w = tk.Toplevel(self)
-        w.title("Editar cliente" if cid else "Nuevo cliente")
-        w.geometry("500x410")
+        w.title("Editar cliente" if cid else "Agregar cliente")
+        w.geometry("1080x760")
+        w.minsize(900, 650)
         w.transient(self)
         w.grab_set()
         w.configure(bg="white")
-        tk.Label(w, text="Editar cliente" if cid else "Nuevo cliente", bg="white", fg="#17191d",
-                 font=("Segoe UI", 19, "bold")).pack(pady=(22, 16))
+
+        tk.Label(w, text="Editar cliente" if cid else "AGREGAR CLIENTE", bg="white", fg="#17191d",
+                 font=("Segoe UI", 21, "bold")).pack(anchor="w", padx=28, pady=(18, 4))
+        tk.Label(w, text="Nombre, datos opcionales y pedido del cliente en un solo lugar.",
+                 bg="white", fg=self.MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=28, pady=(0, 12))
+
         form = tk.Frame(w, bg="white")
         form.pack(fill="x", padx=28)
-        tk.Label(form, text="Nombre *", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        left = tk.Frame(form, bg="white")
+        left.pack(fill="x")
+
+        tk.Label(left, text="NOMBRE *", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w", padx=(0, 12))
+        tk.Label(left, text="TELEFONO OPCIONAL", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).grid(row=0, column=1, sticky="w", padx=12)
+        tk.Label(left, text="NOTA OPCIONAL", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).grid(row=0, column=2, sticky="w", padx=12)
+        left.grid_columnconfigure(0, weight=3); left.grid_columnconfigure(1, weight=2); left.grid_columnconfigure(2, weight=3)
+
         name_var = tk.StringVar(value=row[0] if row else "")
-        name_entry = tk.Entry(form, textvariable=name_var, font=("Segoe UI", 12), relief="solid", bd=1)
-        name_entry.pack(fill="x", ipady=7, pady=(3, 12))
-        tk.Label(form, text="Teléfono (opcional)", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).pack(anchor="w")
         phone_var = tk.StringVar(value=row[1] if row else "")
-        tk.Entry(form, textvariable=phone_var, font=("Segoe UI", 12), relief="solid", bd=1).pack(fill="x", ipady=7, pady=(3, 12))
-        tk.Label(form, text="Notas (opcional)", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        notes = tk.Text(form, height=4, font=("Segoe UI", 10), relief="solid", bd=1)
-        notes.pack(fill="x", pady=(3, 12))
+        name_entry = tk.Entry(left, textvariable=name_var, font=("Segoe UI", 12), relief="solid", bd=1)
+        name_entry.grid(row=1, column=0, sticky="ew", padx=(0, 12), pady=(4, 10), ipady=7)
+        tk.Entry(left, textvariable=phone_var, font=("Segoe UI", 12), relief="solid", bd=1).grid(row=1, column=1, sticky="ew", padx=12, pady=(4, 10), ipady=7)
+        notes = tk.Entry(left, font=("Segoe UI", 12), relief="solid", bd=1)
+        notes.grid(row=1, column=2, sticky="ew", padx=12, pady=(4, 10), ipady=7)
         if row:
-            notes.insert("1.0", row[2])
+            notes.insert(0, row[2] or "")
+
+        # Editar cliente no cambia pedidos; los pedidos se agregan al crear un cliente.
+        if cid:
+            def save_edit():
+                name = name_var.get().strip()
+                if not name:
+                    messagebox.showwarning("Cliente", "Escribe el nombre del cliente.", parent=w); return
+                c = database()
+                try:
+                    c.execute("UPDATE clientes SET nombre=?,telefono=?,notas=? WHERE id=?",
+                              (name, phone_var.get().strip(), notes.get().strip(), cid))
+                    c.commit()
+                except sqlite3.IntegrityError:
+                    c.close(); messagebox.showwarning("Cliente", "Ya existe un cliente con ese nombre.", parent=w); return
+                c.close(); w.destroy(); self.show_clients()
+            self.make_button(w, "GUARDAR CAMBIOS", save_edit, bg=self.GREEN, fg="white",
+                             font=("Segoe UI", 11, "bold")).pack(fill="x", padx=28, pady=14, ipady=9)
+            name_entry.focus_set()
+            return
+
+        # ---------------- Seleccionar pedido ----------------
+        tk.Label(w, text="SELECCIONAR PEDIDO", bg="white", fg="#17191d",
+                 font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=28, pady=(4, 5))
+        tk.Label(w, text="Busca el producto y toca su tarjeta para agregarlo. Puedes agregar varios.",
+                 bg="white", fg=self.MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=28, pady=(0, 7))
+
+        order_box = tk.Frame(w, bg="#f7f8fa", highlightthickness=1, highlightbackground="#d9dde2")
+        order_box.pack(fill="both", expand=True, padx=28, pady=(0, 10))
+        order_box.grid_columnconfigure(0, weight=3)
+        order_box.grid_columnconfigure(1, weight=2)
+        order_box.grid_rowconfigure(1, weight=1)
+
+        tk.Label(order_box, text="PRODUCTOS", bg="#f7f8fa", fg="#333", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w", padx=12, pady=(9, 4))
+        search_var = tk.StringVar()
+        search = tk.Entry(order_box, textvariable=search_var, font=("Segoe UI", 11), relief="solid", bd=1)
+        search.grid(row=0, column=0, sticky="e", padx=12, pady=(7, 4), ipadx=6, ipady=5)
+
+        catalog_frame = tk.Frame(order_box, bg="white")
+        catalog_frame.grid(row=1, column=0, sticky="nsew", padx=(10, 5), pady=(0, 10))
+        catalog_frame.grid_rowconfigure(0, weight=1); catalog_frame.grid_columnconfigure(0, weight=1)
+        canvas = tk.Canvas(catalog_frame, bg="white", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(catalog_frame, orient="vertical", command=canvas.yview)
+        cards = tk.Frame(canvas, bg="white")
+        canvas_window = canvas.create_window((0, 0), window=cards, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew"); scrollbar.grid(row=0, column=1, sticky="ns")
+        cards.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        catalog_frame.bind("<Configure>", lambda e: canvas.itemconfigure(canvas_window, width=max(e.width-2, 400)))
+
+        selected_box = tk.Frame(order_box, bg="white", highlightthickness=1, highlightbackground="#d9dde2")
+        selected_box.grid(row=1, column=1, sticky="nsew", padx=(5, 10), pady=(0, 10))
+        tk.Label(selected_box, text="PEDIDO SELECCIONADO", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=10, pady=(9, 5))
+        selected_frame = tk.Frame(selected_box, bg="white")
+        selected_frame.pack(fill="both", expand=True, padx=8)
+        selected_tree = ttk.Treeview(selected_frame, columns=("producto", "cantidad", "total"), show="headings", selectmode="browse")
+        for col, title, width, anchor in [("producto", "Producto", 210, "w"), ("cantidad", "Cant.", 60, "center"), ("total", "Total", 105, "e")]:
+            selected_tree.heading(col, text=title); selected_tree.column(col, width=width, anchor=anchor)
+        selected_scroll = ttk.Scrollbar(selected_frame, orient="vertical", command=selected_tree.yview)
+        selected_tree.configure(yscrollcommand=selected_scroll.set)
+        selected_tree.pack(side="left", fill="both", expand=True); selected_scroll.pack(side="right", fill="y")
+
+        selected = {}  # pid -> [name, price, quantity]
+        c = database()
+        products = c.execute("SELECT id,nombre,precio,imagen FROM productos ORDER BY nombre COLLATE NOCASE,id").fetchall()
+        c.close()
+
+        def refresh_order():
+            for item in selected_tree.get_children(): selected_tree.delete(item)
+            total = 0
+            for pid, (name, price, qty) in selected.items():
+                line = price * qty; total += line
+                selected_tree.insert("", "end", iid=str(pid), values=(name, qty, money(line)))
+            total_var.set(money(total))
+
+        def add_selected(pid):
+            rowp = next((r for r in products if r[0] == pid), None)
+            if not rowp: return
+            _pid, name, price, image = rowp
+            if pid in selected:
+                selected[pid][2] += 1
+            else:
+                selected[pid] = [name, int(price), 1]
+            refresh_order()
+
+        def remove_selected():
+            sel = selected_tree.selection()
+            if not sel: return
+            selected.pop(int(sel[0]), None)
+            refresh_order()
+
+        def change_quantity(delta):
+            sel = selected_tree.selection()
+            if not sel: return
+            pid = int(sel[0])
+            if pid not in selected: return
+            selected[pid][2] += delta
+            if selected[pid][2] <= 0: selected.pop(pid, None)
+            refresh_order()
+
+        def render_catalog(*_):
+            for child in cards.winfo_children(): child.destroy()
+            q = normalize(search_var.get())
+            rows = [r for r in products if not q or q in normalize(r[1])]
+            if not rows:
+                tk.Label(cards, text="No se encontraron productos.", bg="white", fg=self.MUTED,
+                         font=("Segoe UI", 11, "bold")).pack(pady=30)
+                return
+            available = max(catalog_frame.winfo_width(), 500)
+            cols = max(2, min(4, available // 145))
+            for col in range(cols): cards.grid_columnconfigure(col, weight=1, uniform="clientproduct")
+            for i, (pid, name, price, image) in enumerate(rows):
+                r, col = i // cols, i % cols
+                card = tk.Frame(cards, bg="#eef2f5", width=135, height=170,
+                                highlightthickness=1, highlightbackground="#dfe4e8", cursor="hand2")
+                card.grid(row=r, column=col, padx=6, pady=6, sticky="nsew")
+                card.grid_propagate(False)
+                photo = self.load_photo(image, 112, 92, f"client-product-{pid}")
+                if photo:
+                    visual = tk.Label(card, image=photo, bg="#eef2f5"); visual.image = photo
+                else:
+                    visual = tk.Label(card, text="🖼\nSin imagen", bg="#eef2f5", fg="#8a939d", font=("Segoe UI", 9))
+                visual.pack(pady=(6, 3))
+                name_label = tk.Label(card, text=name, bg="#eef2f5", fg="#20252b", font=("Segoe UI", 9, "bold"), wraplength=122)
+                name_label.pack(pady=(0, 1))
+                price_label = tk.Label(card, text=money(price), bg="#eef2f5", fg="#17191d", font=("Segoe UI", 10, "bold"))
+                price_label.pack()
+                for widget in (card, visual, name_label, price_label):
+                    widget.bind("<Button-1>", lambda _e, p=pid: add_selected(p))
+            canvas.update_idletasks(); canvas.configure(scrollregion=canvas.bbox("all"))
+
+        search_var.trace_add("write", render_catalog)
+        total_var = tk.StringVar(value="$0")
+        controls = tk.Frame(selected_box, bg="white")
+        controls.pack(fill="x", padx=8, pady=(6, 4))
+        self.make_button(controls, "−", lambda: change_quantity(-1), bg="#e9edf1", fg="#252a31", font=("Segoe UI", 11, "bold")).pack(side="left", padx=2, ipady=3, ipadx=7)
+        self.make_button(controls, "+", lambda: change_quantity(1), bg="#e9edf1", fg="#252a31", font=("Segoe UI", 11, "bold")).pack(side="left", padx=2, ipady=3, ipadx=7)
+        self.make_button(controls, "Eliminar", remove_selected, bg="#ffe7e5", fg="#a5261f", font=("Segoe UI", 9, "bold")).pack(side="left", padx=6, ipady=4, ipadx=5)
+        tk.Label(controls, text="TOTAL", bg="white", fg="#333", font=("Segoe UI", 9, "bold")).pack(side="left", padx=(10, 4))
+        tk.Label(controls, textvariable=total_var, bg="white", fg="#17191d", font=("Segoe UI", 13, "bold")).pack(side="left")
 
         def save():
             name = name_var.get().strip()
             if not name:
-                messagebox.showwarning("Cliente", "Escribe el nombre del cliente.", parent=w)
-                return
+                messagebox.showwarning("Cliente", "Escribe el nombre del cliente.", parent=w); return
+            if not selected:
+                messagebox.showwarning("Pedido", "Selecciona al menos un producto que se llevó el cliente.", parent=w); return
+            total = sum(item[1] * item[2] for item in selected.values())
+            items = ", ".join(f"{item[2]}× {item[0]}" for item in selected.values())
             c = database()
             try:
-                if cid:
-                    c.execute("UPDATE clientes SET nombre=?,telefono=?,notas=? WHERE id=?", (name, phone_var.get().strip(), notes.get("1.0", "end").strip(), cid))
-                else:
-                    c.execute("INSERT INTO clientes(nombre,telefono,notas,creado) VALUES(?,?,?,?)", (name, phone_var.get().strip(), notes.get("1.0", "end").strip(), datetime.now().isoformat(sep=" ")))
+                c.execute("INSERT INTO clientes(nombre,telefono,notas,creado) VALUES(?,?,?,?)",
+                          (name, phone_var.get().strip(), notes.get().strip(), datetime.now().isoformat(sep=" ")))
+                new_cid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+                c.execute("INSERT INTO movimientos_clientes(cliente_id,fecha,tipo,monto,concepto) VALUES(?,?,?,?,?)",
+                          (new_cid, datetime.now().isoformat(sep=" "), "FIADO", total, items))
                 c.commit()
             except sqlite3.IntegrityError:
-                c.close()
-                messagebox.showwarning("Cliente", "Ya existe un cliente con ese nombre.", parent=w)
-                return
-            c.close()
-            w.destroy()
-            self.show_clients()
-        self.make_button(w, "GUARDAR CLIENTE", save, bg=self.GREEN, fg="white",
-                         font=("Segoe UI", 11, "bold")).pack(fill="x", padx=28, ipady=9)
+                c.close(); messagebox.showwarning("Cliente", "Ya existe un cliente con ese nombre.", parent=w); return
+            c.close(); w.destroy(); self.show_clients()
+
+        self.make_button(w, "GUARDAR CLIENTE Y FIADO", save, bg="#20242a", fg="white",
+                         font=("Segoe UI", 11, "bold")).pack(fill="x", padx=28, pady=(0, 16), ipady=10)
         name_entry.focus_set()
+        render_catalog()
 
     def client_movement(self, movement_type):
         cid = self.selected_client_id()
