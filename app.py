@@ -333,10 +333,12 @@ class App(tk.Tk):
         category_shell.pack(fill="x", padx=12, pady=(0, 3))
         category_shell.pack_propagate(False)
         self.category_canvas = tk.Canvas(category_shell, bg="white", highlightthickness=0, bd=0, height=44)
+        # Barra horizontal visible para poder mover las categorías con el dedo o el cursor.
         category_scroll = ttk.Scrollbar(category_shell, orient="horizontal", command=self.category_canvas.xview)
         self.category_canvas.configure(xscrollcommand=category_scroll.set)
         self.category_canvas.pack(side="top", fill="both", expand=True)
-        category_scroll.pack(side="bottom", fill="x")
+        category_scroll.pack(side="bottom", fill="x", ipady=2)
+        self.category_scrollbar = category_scroll
         self.categories_bar = tk.Frame(self.category_canvas, bg="white")
         self.category_window = self.category_canvas.create_window((0, 0), window=self.categories_bar, anchor="nw")
         self.categories_bar.bind("<Configure>", lambda _e: self.category_canvas.configure(scrollregion=self.category_canvas.bbox("all")))
@@ -354,7 +356,7 @@ class App(tk.Tk):
             products_shell, orient="vertical", command=self.products_canvas.yview
         )
         self.products_canvas.configure(yscrollcommand=self.products_scrollbar.set)
-        self.products_scrollbar.pack(side="right", fill="y")
+        self.products_scrollbar.pack(side="right", fill="y", ipadx=2)
         self.products_canvas.pack(side="left", fill="both", expand=True)
 
         self.products_area = tk.Frame(self.products_canvas, bg="white")
@@ -382,6 +384,19 @@ class App(tk.Tk):
         self.products_area.bind("<MouseWheel>", self._products_mousewheel)
         self.products_area.bind("<Button-4>", self._products_mousewheel)
         self.products_area.bind("<Button-5>", self._products_mousewheel)
+
+        # También permite agarrar y arrastrar el contenido directamente con el
+        # touchpad (clic/pressionar + mover el dedo), sin necesidad de mouse.
+        self._bind_canvas_drag(self.products_canvas, horizontal=False)
+
+        # Categorías: rueda horizontal con Shift + rueda y arrastre directo.
+        self.category_canvas.bind("<Shift-MouseWheel>", self._categories_mousewheel)
+        self.category_canvas.bind("<Shift-Button-4>", self._categories_mousewheel)
+        self.category_canvas.bind("<Shift-Button-5>", self._categories_mousewheel)
+        self.categories_bar.bind("<Shift-MouseWheel>", self._categories_mousewheel)
+        self.categories_bar.bind("<Shift-Button-4>", self._categories_mousewheel)
+        self.categories_bar.bind("<Shift-Button-5>", self._categories_mousewheel)
+        self._bind_canvas_drag(self.category_canvas, horizontal=True)
 
         # Dinero recibido: siempre abajo, fuera del panel de productos desplazable.
         money_box = tk.Frame(left, bg="#f8fafb", highlightthickness=1, highlightbackground="#dde2e7")
@@ -493,6 +508,45 @@ class App(tk.Tk):
             if delta:
                 self.products_canvas.yview_scroll(delta, "units")
         return "break"
+
+    def _categories_mousewheel(self, event):
+        # Desplazamiento horizontal con Shift + rueda del touchpad/mouse.
+        if getattr(event, "num", None) == 4:
+            self.category_canvas.xview_scroll(-3, "units")
+        elif getattr(event, "num", None) == 5:
+            self.category_canvas.xview_scroll(3, "units")
+        else:
+            delta = int(-1 * (event.delta / 120)) if event.delta else 0
+            if delta:
+                self.category_canvas.xview_scroll(delta, "units")
+        return "break"
+
+    def _bind_canvas_drag(self, canvas, horizontal=False):
+        """Permite agarrar el contenido y moverlo con el touchpad/cursor."""
+        canvas._drag_horizontal = horizontal
+        canvas.bind("<ButtonPress-1>", lambda e: self._canvas_drag_start(canvas, e))
+        canvas.bind("<B1-Motion>", lambda e: self._canvas_drag_move(canvas, e))
+        canvas.bind("<ButtonRelease-1>", lambda e: self._canvas_drag_end(canvas, e))
+
+    def _canvas_drag_start(self, canvas, event):
+        canvas._drag_last = (event.x, event.y)
+        canvas._dragging = False
+
+    def _canvas_drag_move(self, canvas, event):
+        if not hasattr(canvas, "_drag_last"):
+            return
+        last_x, last_y = canvas._drag_last
+        dx, dy = event.x - last_x, event.y - last_y
+        if abs(dx) + abs(dy) >= 1:
+            canvas._dragging = True
+            if canvas._drag_horizontal:
+                canvas.xview_scroll(int(-dx), "units")
+            else:
+                canvas.yview_scroll(int(-dy), "units")
+            canvas._drag_last = (event.x, event.y)
+
+    def _canvas_drag_end(self, canvas, event):
+        canvas._drag_last = None
 
     def load_categories(self):
         for w in self.categories_bar.winfo_children():
