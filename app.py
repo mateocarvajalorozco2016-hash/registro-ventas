@@ -87,6 +87,22 @@ def database():
         precio INTEGER NOT NULL,
         FOREIGN KEY(venta_id) REFERENCES ventas(id) ON DELETE CASCADE
     )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS clientes(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        telefono TEXT NOT NULL DEFAULT '',
+        notas TEXT NOT NULL DEFAULT '',
+        creado TEXT NOT NULL
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS movimientos_clientes(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cliente_id INTEGER NOT NULL,
+        fecha TEXT NOT NULL,
+        tipo TEXT NOT NULL CHECK(tipo IN ('FIADO','ABONO')),
+        monto INTEGER NOT NULL,
+        concepto TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
+    )""")
     c.commit()
     return c
 
@@ -230,6 +246,7 @@ class App(tk.Tk):
             ("📅  Ventas de esta semana", lambda: self.show_history("Semana")),
             ("📆  Ventas de este mes", lambda: self.show_history("Mes")),
             ("📦  Productos y categorías", self.show_manager),
+            ("👥  Clientes / Fiados", self.show_clients),
             ("⚙  Configuración", self.show_settings),
         ]
         for text, command in items:
@@ -335,14 +352,19 @@ class App(tk.Tk):
         self.custom_received_entry.bind("<FocusIn>", self.on_received_focus)
         self.custom_received_entry.bind("<<Paste>>", self.on_received_paste)
 
+        # Descuento destacado: cuadro negro para que se identifique fácilmente.
+        discount_box = tk.Frame(custom, bg="#111111", highlightthickness=1, highlightbackground="#000000")
+        discount_box.pack(side="left", padx=(14, 4), ipady=2)
         self.discount_var = tk.BooleanVar(value=False)
         self.discount_check = tk.Checkbutton(
-            custom, text="Descuento", variable=self.discount_var,
-            command=self.toggle_discount, bg="#f8fafb", fg="#252a31",
-            activebackground="#f8fafb", selectcolor="#ffffff",
-            font=("Segoe UI", 9, "bold")
+            discount_box, text="  Descuento", variable=self.discount_var,
+            command=self.toggle_discount, bg="#111111", fg="white",
+            activebackground="#111111", activeforeground="white",
+            selectcolor="#111111",
+            font=("Segoe UI", 10, "bold"), bd=0, relief="flat",
+            cursor="hand2", padx=7, pady=2
         )
-        self.discount_check.pack(side="left", padx=(14, 4))
+        self.discount_check.pack()
 
         self.final_price_frame = tk.Frame(money_box, bg="#f8fafb")
         self.final_price_label = tk.Label(
@@ -1281,6 +1303,30 @@ class App(tk.Tk):
                         money(item["total"])
                     ))
 
+            # Los abonos también aparecen en la sección VENTAS, claramente
+            # identificados como "ABONO — Nombre del cliente".
+            c = database()
+            abonos = c.execute(
+                """SELECT mc.fecha, mc.monto, cl.nombre, mc.concepto
+                   FROM movimientos_clientes mc
+                   JOIN clientes cl ON cl.id = mc.cliente_id
+                   WHERE mc.tipo = 'ABONO' AND mc.fecha >= ? AND mc.fecha < ?
+                   ORDER BY mc.fecha ASC, mc.id ASC""",
+                (start.isoformat(sep=" "), end.isoformat(sep=" "))
+            ).fetchall()
+            c.close()
+            for fecha, monto, nombre, concepto in abonos:
+                try:
+                    date_display = datetime.fromisoformat(fecha).strftime("%d/%m/%Y %H:%M")
+                except ValueError:
+                    date_display = str(fecha)
+                detalle_abono = f"ABONO — {nombre}"
+                if concepto:
+                    detalle_abono += f" ({concepto})"
+                tree.insert("", "end", values=(
+                    date_display, "", detalle_abono, "", "", money(monto)
+                ))
+
             tk.Label(
                 self.body, text=f"TOTAL DE HOY: {money(total)}",
                 bg=self.BG, fg="#17191d",
@@ -1502,6 +1548,295 @@ class App(tk.Tk):
             self.refresh_current_view()
         self.make_button(w, "ELIMINAR", delete, bg="#d92d20", fg="white").pack(pady=8, ipady=7, ipadx=15)
 
+    # --------------------------- Clients / Fiados -------------------------
+    def client_balance(self, client_id, c=None):
+        own = c is None
+        if own:
+            c = database()
+        balance = c.execute("""SELECT COALESCE(SUM(CASE WHEN tipo='FIADO' THEN monto ELSE -monto END),0)
+                              FROM movimientos_clientes WHERE cliente_id=?""", (client_id,)).fetchone()[0]
+        if own:
+            c.close()
+        return int(balance or 0)
+
+    def show_clients(self):
+        self.current_view = "clients"
+        self.clear_body()
+        self.body.configure(padx=14, pady=14)
+
+        top = tk.Frame(self.body, bg=self.BG)
+        top.pack(fill="x", pady=(0, 10))
+        tk.Label(top, text="Clientes / Fiados", bg=self.BG, fg="#17191d",
+                 font=("Segoe UI", 22, "bold")).pack(side="left")
+        self.make_button(top, "＋ Nuevo cliente", self.add_client,
+                         bg=self.GREEN, fg="white", activebackground="#128657",
+                         font=("Segoe UI", 10, "bold")).pack(side="right", ipady=7, ipadx=10)
+
+        info = tk.Frame(self.body, bg="#fff8e7", highlightthickness=1, highlightbackground="#f1d28b")
+        info.pack(fill="x", pady=(0, 10))
+        tk.Label(info, text="Aquí puedes llevar las cuentas de las personas a las que les fías.",
+                 bg="#fff8e7", fg="#6b5315", font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(8, 2))
+        tk.Label(info, text="Registra cada fiado y cada abono para saber exactamente cuánto debe cada cliente.",
+                 bg="#fff8e7", fg="#7b6a3c", font=("Segoe UI", 9)).pack(anchor="w", padx=12, pady=(0, 8))
+
+        search_frame = tk.Frame(self.body, bg="white")
+        search_frame.pack(fill="x", pady=(0, 8))
+        tk.Label(search_frame, text="Buscar cliente", bg="white", fg=self.MUTED,
+                 font=("Segoe UI", 9, "bold")).pack(side="left", padx=(10, 6), pady=9)
+        search_var = tk.StringVar()
+        search_entry = tk.Entry(search_frame, textvariable=search_var, font=("Segoe UI", 11), relief="solid", bd=1)
+        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 10), ipady=5)
+
+        table_card = tk.Frame(self.body, bg="white")
+        table_card.pack(fill="both", expand=True)
+        columns = ("nombre", "telefono", "debe", "estado")
+        tree = ttk.Treeview(table_card, columns=columns, show="headings", selectmode="browse")
+        tree.heading("nombre", text="Cliente")
+        tree.heading("telefono", text="Teléfono")
+        tree.heading("debe", text="Debe")
+        tree.heading("estado", text="Estado")
+        tree.column("nombre", width=300, anchor="w")
+        tree.column("telefono", width=180, anchor="w")
+        tree.column("debe", width=180, anchor="e")
+        tree.column("estado", width=150, anchor="center")
+        scroll = ttk.Scrollbar(table_card, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
+        scroll.pack(side="right", fill="y", padx=(0, 8), pady=8)
+        self.clients_tree = tree
+
+        actions = tk.Frame(self.body, bg=self.BG)
+        actions.pack(fill="x", pady=(8, 0))
+        self.make_button(actions, "＋ Registrar fiado", lambda: self.client_movement("FIADO"),
+                         bg="#20242a", fg="white", activebackground="#111111").pack(side="left", padx=(0, 6), ipady=7, ipadx=8)
+        self.make_button(actions, "💰 Registrar abono", lambda: self.client_movement("ABONO"),
+                         bg=self.GREEN, fg="white", activebackground="#128657").pack(side="left", padx=6, ipady=7, ipadx=8)
+        self.make_button(actions, "📋 Ver movimientos", self.show_client_movements,
+                         bg="#e9edf1", fg="#252a31").pack(side="left", padx=6, ipady=7, ipadx=8)
+        self.make_button(actions, "✏ Editar", self.edit_client,
+                         bg="#e9edf1", fg="#252a31").pack(side="right", padx=6, ipady=7, ipadx=8)
+        self.make_button(actions, "🗑 Eliminar", self.delete_client,
+                         bg="#d92d20", fg="white", activebackground="#b42318").pack(side="right", ipady=7, ipadx=8)
+
+        def refresh(*_):
+            query = normalize(search_var.get())
+            for item in tree.get_children():
+                tree.delete(item)
+            c = database()
+            rows = c.execute("SELECT id,nombre,telefono FROM clientes ORDER BY nombre COLLATE NOCASE").fetchall()
+            for cid, name, phone in rows:
+                if query and query not in normalize(name) and query not in normalize(phone):
+                    continue
+                balance = self.client_balance(cid, c)
+                state = "Pendiente" if balance > 0 else "Al día"
+                tree.insert("", "end", iid=str(cid), values=(name, phone or "—", money(balance), state))
+            c.close()
+        search_var.trace_add("write", refresh)
+        refresh()
+
+    def selected_client_id(self):
+        if not hasattr(self, "clients_tree"):
+            return None
+        selected = self.clients_tree.selection()
+        if not selected:
+            messagebox.showwarning("Cliente", "Selecciona un cliente primero.", parent=self)
+            return None
+        return int(selected[0])
+
+    def add_client(self):
+        self.client_form()
+
+    def edit_client(self):
+        cid = self.selected_client_id()
+        if not cid:
+            return
+        c = database()
+        row = c.execute("SELECT nombre,telefono,notas FROM clientes WHERE id=?", (cid,)).fetchone()
+        c.close()
+        if row:
+            self.client_form(cid, row)
+
+    def client_form(self, cid=None, row=None):
+        w = tk.Toplevel(self)
+        w.title("Editar cliente" if cid else "Nuevo cliente")
+        w.geometry("500x410")
+        w.transient(self)
+        w.grab_set()
+        w.configure(bg="white")
+        tk.Label(w, text="Editar cliente" if cid else "Nuevo cliente", bg="white", fg="#17191d",
+                 font=("Segoe UI", 19, "bold")).pack(pady=(22, 16))
+        form = tk.Frame(w, bg="white")
+        form.pack(fill="x", padx=28)
+        tk.Label(form, text="Nombre *", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        name_var = tk.StringVar(value=row[0] if row else "")
+        name_entry = tk.Entry(form, textvariable=name_var, font=("Segoe UI", 12), relief="solid", bd=1)
+        name_entry.pack(fill="x", ipady=7, pady=(3, 12))
+        tk.Label(form, text="Teléfono (opcional)", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        phone_var = tk.StringVar(value=row[1] if row else "")
+        tk.Entry(form, textvariable=phone_var, font=("Segoe UI", 12), relief="solid", bd=1).pack(fill="x", ipady=7, pady=(3, 12))
+        tk.Label(form, text="Notas (opcional)", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        notes = tk.Text(form, height=4, font=("Segoe UI", 10), relief="solid", bd=1)
+        notes.pack(fill="x", pady=(3, 12))
+        if row:
+            notes.insert("1.0", row[2])
+
+        def save():
+            name = name_var.get().strip()
+            if not name:
+                messagebox.showwarning("Cliente", "Escribe el nombre del cliente.", parent=w)
+                return
+            c = database()
+            try:
+                if cid:
+                    c.execute("UPDATE clientes SET nombre=?,telefono=?,notas=? WHERE id=?", (name, phone_var.get().strip(), notes.get("1.0", "end").strip(), cid))
+                else:
+                    c.execute("INSERT INTO clientes(nombre,telefono,notas,creado) VALUES(?,?,?,?)", (name, phone_var.get().strip(), notes.get("1.0", "end").strip(), datetime.now().isoformat(sep=" ")))
+                c.commit()
+            except sqlite3.IntegrityError:
+                c.close()
+                messagebox.showwarning("Cliente", "Ya existe un cliente con ese nombre.", parent=w)
+                return
+            c.close()
+            w.destroy()
+            self.show_clients()
+        self.make_button(w, "GUARDAR CLIENTE", save, bg=self.GREEN, fg="white",
+                         font=("Segoe UI", 11, "bold")).pack(fill="x", padx=28, ipady=9)
+        name_entry.focus_set()
+
+    def client_movement(self, movement_type):
+        cid = self.selected_client_id()
+        if not cid:
+            return
+        c = database()
+        row = c.execute("SELECT nombre FROM clientes WHERE id=?", (cid,)).fetchone()
+        balance = self.client_balance(cid, c)
+        products = c.execute("SELECT id,nombre,precio FROM productos ORDER BY nombre COLLATE NOCASE").fetchall()
+        c.close()
+        if not row:
+            return
+        title = "Registrar fiado" if movement_type == "FIADO" else "Registrar abono"
+        w = tk.Toplevel(self)
+        w.title(title)
+        w.geometry("620x610" if movement_type == "FIADO" else "460x350")
+        w.transient(self); w.grab_set(); w.configure(bg="white")
+        tk.Label(w, text=title, bg="white", fg="#17191d", font=("Segoe UI", 19, "bold")).pack(pady=(18, 4))
+        tk.Label(w, text=f"Cliente: {row[0]}", bg="white", fg=self.MUTED, font=("Segoe UI", 10, "bold")).pack()
+        tk.Label(w, text=f"Saldo actual: {money(balance)}", bg="white", fg="#17191d", font=("Segoe UI", 12, "bold")).pack(pady=(6, 12))
+
+        form = tk.Frame(w, bg="white"); form.pack(fill="both", expand=True, padx=28)
+        if movement_type == "FIADO":
+            tk.Label(form, text="Productos que se lleva", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+            list_frame = tk.Frame(form, bg="white"); list_frame.pack(fill="both", expand=True, pady=(4, 8))
+            tree = ttk.Treeview(list_frame, columns=("producto","precio","cantidad","total"), show="headings", height=13)
+            for col, txt, width, anchor in [("producto","Producto",245,"w"),("precio","Precio",105,"e"),("cantidad","Cantidad",90,"center"),("total","Total",110,"e")]:
+                tree.heading(col, text=txt); tree.column(col, width=width, anchor=anchor)
+            scroll = ttk.Scrollbar(list_frame, orient="vertical", command=tree.yview); tree.configure(yscrollcommand=scroll.set)
+            tree.pack(side="left", fill="both", expand=True); scroll.pack(side="right", fill="y")
+            qty_var = tk.StringVar(value="1")
+            bottom = tk.Frame(form, bg="white"); bottom.pack(fill="x", pady=(0, 8))
+            tk.Label(bottom, text="Cantidad", bg="white", fg="#333", font=("Segoe UI", 9, "bold")).pack(side="left")
+            qty_entry = tk.Entry(bottom, textvariable=qty_var, width=7, justify="center", font=("Segoe UI", 11, "bold"), relief="solid", bd=1)
+            qty_entry.pack(side="left", padx=6, ipady=4)
+            def add_product():
+                sel = tree.selection()
+                # Selección de catálogo mediante ventana sencilla
+                chooser = tk.Toplevel(w); chooser.title("Elegir producto"); chooser.geometry("420x480"); chooser.transient(w); chooser.grab_set(); chooser.configure(bg="white")
+                tk.Label(chooser, text="Selecciona el producto", bg="white", font=("Segoe UI", 14, "bold")).pack(pady=12)
+                lb = tk.Listbox(chooser, font=("Segoe UI", 11)); lb.pack(fill="both", expand=True, padx=18, pady=8)
+                for _, name, price in products: lb.insert("end", f"{name} — {money(price)}")
+                def choose():
+                    idx = lb.curselection()
+                    if not idx: return
+                    pid, name, price = products[idx[0]]
+                    try: q = max(1, int(qty_var.get()))
+                    except ValueError: q = 1
+                    iid = str(pid)
+                    if tree.exists(iid):
+                        old = int(tree.set(iid, "cantidad")); q += old
+                    tree.insert("", "end", iid=iid, values=(name, money(price), q, money(price*q))) if not tree.exists(iid) else tree.item(iid, values=(name, money(price), q, money(price*q)))
+                    chooser.destroy(); update_total()
+                self.make_button(chooser, "AGREGAR", choose, bg="#20242a", fg="white").pack(fill="x", padx=18, pady=12, ipady=8)
+            self.make_button(bottom, "＋ Agregar producto", add_product, bg="#20242a", fg="white").pack(side="left", padx=8, ipady=5, ipadx=8)
+            total_var = tk.StringVar(value="$0")
+            tk.Label(bottom, text="TOTAL:", bg="white", font=("Segoe UI", 10, "bold")).pack(side="right", padx=(8,2))
+            tk.Label(bottom, textvariable=total_var, bg="white", fg="#17191d", font=("Segoe UI", 13, "bold")).pack(side="right")
+            def update_total():
+                total = sum(parse_money(tree.set(i, "total")) for i in tree.get_children())
+                total_var.set(money(total))
+            tk.Label(form, text="Cada producto queda guardado en el fiado y el saldo se reduce automáticamente con cada abono.", bg="white", fg=self.MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0,8))
+            def save():
+                items = []
+                total = 0
+                for iid in tree.get_children():
+                    name = tree.set(iid,"producto"); price = parse_money(tree.set(iid,"precio")); q = int(tree.set(iid,"cantidad")); total += price*q; items.append(f"{q}× {name}")
+                if total <= 0: messagebox.showwarning("Fiado", "Agrega al menos un producto.", parent=w); return
+                c = database(); c.execute("INSERT INTO movimientos_clientes(cliente_id,fecha,tipo,monto,concepto) VALUES(?,?,?,?,?)", (cid, datetime.now().isoformat(sep=" "), "FIADO", total, ", ".join(items))); c.commit(); c.close(); w.destroy(); self.show_clients()
+            self.make_button(w, "GUARDAR FIADO", save, bg="#20242a", fg="white").pack(fill="x", padx=28, pady=(0,18), ipady=9)
+        else:
+            tk.Label(form, text="Monto del abono", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+            amount_var = tk.StringVar(value="0")
+            amount_entry = tk.Entry(form, textvariable=amount_var, font=("Segoe UI", 13, "bold"), justify="right", relief="solid", bd=1)
+            amount_entry.pack(fill="x", ipady=7, pady=(3, 10))
+            tk.Label(form, text="Concepto (opcional)", bg="white", fg="#333", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+            concept_var = tk.StringVar()
+            tk.Entry(form, textvariable=concept_var, font=("Segoe UI", 11), relief="solid", bd=1).pack(fill="x", ipady=7, pady=(3, 14))
+            def save():
+                amount = parse_money(amount_var.get())
+                if amount <= 0: messagebox.showwarning("Monto", "Escribe un monto mayor que cero.", parent=w); return
+                if amount > balance: messagebox.showwarning("Abono", "El abono no puede ser mayor que lo que debe el cliente.", parent=w); return
+                c = database(); c.execute("INSERT INTO movimientos_clientes(cliente_id,fecha,tipo,monto,concepto) VALUES(?,?,?,?,?)", (cid, datetime.now().isoformat(sep=" "), "ABONO", amount, concept_var.get().strip())); c.commit(); c.close(); w.destroy(); self.show_clients()
+            self.make_button(w, "GUARDAR ABONO", save, bg=self.GREEN, fg="white").pack(fill="x", padx=30, ipady=9)
+            amount_entry.focus_set()
+
+    def show_client_movements(self):
+        cid = self.selected_client_id()
+        if not cid:
+            return
+        c = database()
+        client = c.execute("SELECT nombre FROM clientes WHERE id=?", (cid,)).fetchone()
+        rows = c.execute("SELECT id,fecha,tipo,monto,concepto FROM movimientos_clientes WHERE cliente_id=? ORDER BY id DESC", (cid,)).fetchall()
+        balance = self.client_balance(cid, c)
+        c.close()
+        if not client:
+            return
+        w = tk.Toplevel(self)
+        w.title(f"Movimientos - {client[0]}")
+        w.geometry("760x500")
+        w.transient(self)
+        w.configure(bg="white")
+        tk.Label(w, text=f"Movimientos de {client[0]}", bg="white", fg="#17191d", font=("Segoe UI", 18, "bold")).pack(anchor="w", padx=18, pady=(16, 4))
+        tk.Label(w, text=f"Saldo pendiente: {money(balance)}", bg="white", fg="#17191d", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=18, pady=(0, 10))
+        frame = tk.Frame(w, bg="white")
+        frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        tree = ttk.Treeview(frame, columns=("fecha","tipo","monto","concepto"), show="headings")
+        for col, title, width, anchor in [("fecha","Fecha",155,"w"),("tipo","Movimiento",120,"center"),("monto","Monto",140,"e"),("concepto","Concepto",280,"w")]:
+            tree.heading(col, text=title); tree.column(col, width=width, anchor=anchor)
+        for _id, fecha, tipo, monto, concepto in rows:
+            try: fecha = datetime.fromisoformat(fecha).strftime("%d/%m/%Y %I:%M %p")
+            except Exception: pass
+            tree.insert("", "end", values=(fecha, "Fiado" if tipo == "FIADO" else "Abono", money(monto), concepto or "—"))
+        tree.pack(fill="both", expand=True)
+
+    def delete_client(self):
+        cid = self.selected_client_id()
+        if not cid:
+            return
+        c = database()
+        row = c.execute("SELECT nombre FROM clientes WHERE id=?", (cid,)).fetchone()
+        balance = self.client_balance(cid, c)
+        c.close()
+        if not row:
+            return
+        if balance > 0:
+            messagebox.showwarning("Cliente", f"No puedes eliminar a {row[0]} porque todavía debe {money(balance)}.", parent=self)
+            return
+        if not messagebox.askyesno("Eliminar cliente", f"¿Eliminar a {row[0]} y su historial?", parent=self):
+            return
+        c = database()
+        c.execute("DELETE FROM clientes WHERE id=?", (cid,))
+        c.commit(); c.close()
+        self.show_clients()
+
     # --------------------------- Settings ----------------------------------
     def show_settings(self):
         self.current_view = "settings"
@@ -1578,6 +1913,8 @@ class App(tk.Tk):
             self.show_manager()
         elif self.current_view == "settings":
             self.show_settings()
+        elif self.current_view == "clients":
+            self.show_clients()
         else:
             self.show_sale()
 
