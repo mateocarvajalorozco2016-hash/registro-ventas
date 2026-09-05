@@ -359,10 +359,10 @@ class App(tk.Tk):
         self.discount_check = tk.Checkbutton(
             discount_area, text="", variable=self.discount_var,
             command=self.toggle_discount, indicatoron=False,
-            bg="#111111", fg="white", activebackground="#111111",
-            activeforeground="white", selectcolor="#111111",
+            bg="white", fg="white", activebackground="white",
+            activeforeground="#16a34a", selectcolor="white",
             bd=1, relief="solid", highlightthickness=0,
-            width=2, height=1, font=("Segoe UI", 11, "bold"),
+            width=2, height=1, font=("Segoe UI", 12, "bold"),
             cursor="hand2",
         )
         self.discount_check.pack(side="left", ipadx=2, ipady=1)
@@ -689,6 +689,13 @@ class App(tk.Tk):
 
     def toggle_discount(self):
         self.discount_enabled = bool(self.discount_var.get())
+        # El cuadro queda blanco con borde negro. Al marcarlo aparece una palomita verde.
+        self.discount_check.config(
+            text="✓" if self.discount_enabled else "",
+            fg="#16a34a" if self.discount_enabled else "white",
+            activeforeground="#16a34a" if self.discount_enabled else "white",
+            bg="white", activebackground="white", selectcolor="white"
+        )
         if self.discount_enabled:
             subtotal = self.cart_subtotal()
             self.final_price_var.set(str(subtotal))
